@@ -1,0 +1,17 @@
+{
+  "name": "four-plans",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
+    "build": "pnpm --dir web build && node scripts/go.mjs build",
+    "test": "node scripts/go.mjs test",
+    "check": "pnpm --dir web check && node scripts/go.mjs vet",
+    "format": "prettier --write package.json pnpm-workspace.yaml web/package.json web/index.html web/vite.config.ts web/tsconfig.json web/src scripts README.md",
+    "start": "node --env-file-if-exists=.env scripts/start.mjs"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

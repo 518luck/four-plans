@@ -1,0 +1,74 @@
+.resource-panel {
+  margin: 36px 2px 20px;
+  padding: 14px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.resource-panel header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.resource-panel header strong {
+  font-size: 11px;
+  font-weight: 550;
+}
+.resource-panel header > span {
+  font-size: 8px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.resource-panel header button {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  color: var(--muted);
+}
+.resource-panel header button:hover {
+  color: var(--foreground);
+}
+.resource-panel dl {
+  margin: 17px 0 0;
+}
+.resource-panel dl > div + div {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+.resource-panel dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  color: var(--muted);
+}
+.resource-panel dd {
+  font-size: 18px;
+  font-weight: 550;
+  margin: 7px 0 4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.4px;
+}
+.resource-panel small {
+  display: block;
+  font-size: 8px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.resource-cloud-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 8px;
+  color: var(--muted);
+  margin: 16px 0 0;
+}
+.resource-update {
+  font-size: 8px;
+  color: var(--muted);
+  margin: 6px 0 0;
+}

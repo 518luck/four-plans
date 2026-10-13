@@ -1,0 +1,145 @@
+package app
+
+import (
+	"github.com/gin-gonic/gin"
+	"math"
+	"sort"
+	"strconv"
+	"time"
+)
+
+type ActivityDay struct {
+	Date       string `json:"date"`
+	Count      int    `json:"count"`
+	Cumulative int    `json:"cumulative"`
+}
+
+type Statistics struct {
+	TotalPlans           int           `json:"totalPlans"`
+	CompletedPlans       int           `json:"completedPlans"`
+	CompletionRate       int           `json:"completionRate"`
+	LongestStreak        int           `json:"longestStreak"`
+	CurrentStreak        int           `json:"currentStreak"`
+	EstimatedCompletions int           `json:"estimatedCompletions"`
+	Start                string        `json:"start"`
+	End                  string        `json:"end"`
+	Years                []int         `json:"years"`
+	Days                 []ActivityDay `json:"days"`
+}
+
+func calculateStatistics(tasks []Task, now time.Time, location *time.Location) Statistics {
+	return calculateStatisticsRange(tasks, now, location, 0)
+}
+
+func calculateStatisticsRange(tasks []Task, now time.Time, location *time.Location, year int) Statistics {
+	end, _ := time.ParseInLocation("2006-01-02", now.In(location).Format("2006-01-02"), location)
+	actualToday := end
+	start := end.AddDate(0, 0, -364)
+	if year > 0 {
+		start = time.Date(year, 1, 1, 0, 0, 0, 0, location)
+		end = time.Date(year, 12, 31, 0, 0, 0, 0, location)
+		if end.After(actualToday) {
+			end = actualToday
+		}
+	}
+	earliestYear := actualToday.Year()
+	result := Statistics{Start: start.Format("2006-01-02"), End: end.Format("2006-01-02"), Days: make([]ActivityDay, 0, 365)}
+	counts := map[string]int{}
+	for _, task := range tasks {
+		if task.DeletedAt != "" {
+			continue
+		}
+		result.TotalPlans++
+		if date, err := time.ParseInLocation("2006-01-02", task.Date, location); err == nil && date.Year() < earliestYear {
+			earliestYear = date.Year()
+		}
+		if !task.Done {
+			continue
+		}
+		result.CompletedPlans++
+		if task.CompletionDateEstimated {
+			result.EstimatedCompletions++
+		}
+		completed, err := time.Parse(time.RFC3339Nano, task.CompletedAt)
+		if err != nil {
+			continue
+		}
+		date := completed.In(location).Format("2006-01-02")
+		if date <= actualToday.Format("2006-01-02") {
+			if completed.In(location).Year() < earliestYear {
+				earliestYear = completed.In(location).Year()
+			}
+			counts[date]++
+		}
+	}
+	if result.TotalPlans > 0 {
+		result.CompletionRate = int(math.Round(float64(result.CompletedPlans) * 100 / float64(result.TotalPlans)))
+	}
+	dates := make([]string, 0, len(counts))
+	cumulative := 0
+	for date, count := range counts {
+		dates = append(dates, date)
+		if date < result.Start {
+			cumulative += count
+		}
+	}
+	sort.Strings(dates)
+	run := 0
+	previous := ""
+	for _, date := range dates {
+		day, _ := time.ParseInLocation("2006-01-02", date, location)
+		if previous == day.AddDate(0, 0, -1).Format("2006-01-02") {
+			run++
+		} else {
+			run = 1
+		}
+		if run > result.LongestStreak {
+			result.LongestStreak = run
+		}
+		previous = date
+	}
+	cursor := actualToday
+	if counts[actualToday.Format("2006-01-02")] == 0 {
+		cursor = cursor.AddDate(0, 0, -1)
+	}
+	for counts[cursor.Format("2006-01-02")] > 0 {
+		result.CurrentStreak++
+		cursor = cursor.AddDate(0, 0, -1)
+	}
+	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+		date := day.Format("2006-01-02")
+		cumulative += counts[date]
+		result.Days = append(result.Days, ActivityDay{Date: date, Count: counts[date], Cumulative: cumulative})
+	}
+	for y := actualToday.Year(); y >= earliestYear; y-- {
+		result.Years = append(result.Years, y)
+	}
+	return result
+}
+
+func (s *Server) statistics(c *gin.Context) {
+	year := 0
+	if value := c.Query("year"); value != "" {
+		var err error
+		year, err = strconv.Atoi(value)
+		if err != nil || year < 1 || year > s.now().In(s.location).Year() {
+			fail(c, 400, "请选择有效年份", "invalid")
+			return
+		}
+	}
+	if err := s.generateRecurring(c.Request.Context()); err != nil {
+		s.internal(c, err)
+		return
+	}
+	rows, err := s.db.QueryContext(c.Request.Context(), "SELECT "+taskColumns+" FROM tasks WHERE user_id=1")
+	if err != nil {
+		s.internal(c, err)
+		return
+	}
+	tasks, err := readTasks(rows)
+	if err != nil {
+		s.internal(c, err)
+		return
+	}
+	c.JSON(200, calculateStatisticsRange(tasks, s.now(), s.location, year))
+}
