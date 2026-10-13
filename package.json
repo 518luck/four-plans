@@ -9,7 +9,11 @@
     "test": "node scripts/go.mjs test",
     "check": "pnpm --dir web check && node scripts/go.mjs vet",
     "format": "prettier --write package.json pnpm-workspace.yaml web/package.json web/index.html web/vite.config.ts web/tsconfig.json web/src scripts README.md",
-    "start": "node --env-file-if-exists=.env scripts/start.mjs"
+    "start": "node --env-file-if-exists=.env scripts/start.mjs",
+    "check:cloudflare": "pnpm --dir cloudflare check",
+    "test:cloudflare": "pnpm --dir cloudflare test",
+    "dev:cloudflare": "pnpm --dir cloudflare dev",
+    "deploy:cloudflare": "pnpm --dir web build && pnpm --dir cloudflare deploy"
   },
   "devDependencies": {
     "prettier": "3.9.10"
