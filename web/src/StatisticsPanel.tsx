@@ -7,7 +7,13 @@ import {
   type KeyboardEvent,
   type CSSProperties,
 } from "react";
-import { ChevronLeft, LoaderCircle } from "lucide-react";
+import {
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  LoaderCircle,
+} from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { request, addDays, type ActivityDay, type PlanStatistics } from "./api";
 import "./statistics.css";
@@ -63,6 +69,173 @@ function makeWeeks(days: ActivityDay[]): Week[] {
   );
 }
 
+function ActivityYearPicker({
+  value,
+  years,
+  pending,
+  onChange,
+}: {
+  value: string;
+  years: number[];
+  pending: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [above, setAbove] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const items = useRef<(HTMLButtonElement | null)[]>([]);
+  const id = useId();
+  const reduceMotion = useReducedMotion();
+  const options = [
+    { value: "recent", label: "最近 365 天" },
+    ...years.map((year) => ({ value: String(year), label: `${year} 年` })),
+  ];
+  const selected = Math.max(
+    0,
+    options.findIndex((option) => option.value === value),
+  );
+  function close(restoreFocus = false) {
+    setOpen(false);
+    if (restoreFocus) trigger.current?.focus({ preventScroll: true });
+  }
+  function place() {
+    const bounds = trigger.current?.getBoundingClientRect();
+    if (!bounds) return;
+    const height =
+      Math.min(
+        280,
+        options.length * (window.innerWidth <= 620 ? 40 : 34) + 10,
+      ) + 7;
+    setAbove(
+      window.innerHeight - bounds.bottom < height && bounds.top > height,
+    );
+  }
+  function show(index = selected) {
+    place();
+    setActive(index);
+    setOpen(true);
+  }
+  useEffect(() => {
+    if (!open) return;
+    const item = items.current[active];
+    item?.focus({ preventScroll: true });
+    const menu = item?.parentElement;
+    if (!item || !menu) return;
+    if (item.offsetTop < menu.scrollTop) menu.scrollTop = item.offsetTop;
+    else if (
+      item.offsetTop + item.offsetHeight >
+      menu.scrollTop + menu.clientHeight
+    )
+      menu.scrollTop = item.offsetTop + item.offsetHeight - menu.clientHeight;
+  }, [open, active]);
+  useEffect(() => {
+    if (!open) return;
+    place();
+    const outside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !container.current?.contains(event.target)
+      )
+        setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    window.addEventListener("resize", place);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, options.length]);
+  function keyboard(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape" && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      close(true);
+    } else if (event.key === "Tab" && open) close(true);
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!open) show();
+      else
+        setActive(
+          (index) =>
+            (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) %
+            options.length,
+        );
+    } else if (open && (event.key === "Home" || event.key === "End")) {
+      event.preventDefault();
+      setActive(event.key === "Home" ? 0 : options.length - 1);
+    }
+  }
+  return (
+    <div
+      className="activity-year-picker"
+      ref={container}
+      onKeyDown={keyboard}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) close();
+      }}
+    >
+      <button
+        className="activity-year-trigger"
+        type="button"
+        ref={trigger}
+        aria-label={`活动年份：${options[selected].label}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => (open ? close() : show())}
+      >
+        {pending ? (
+          <LoaderCircle size={14} className="spin" aria-hidden="true" />
+        ) : (
+          <CalendarDays size={14} aria-hidden="true" />
+        )}
+        <span>{options[selected].label}</span>
+        <ChevronDown
+          size={12}
+          className="activity-year-chevron"
+          aria-hidden="true"
+        />
+      </button>
+      {open && (
+        <motion.div
+          id={id}
+          className="activity-year-menu"
+          data-side={above ? "top" : "bottom"}
+          role="listbox"
+          aria-label="活动年份"
+          initial={reduceMotion ? false : { opacity: 0, y: above ? 4 : -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.14 }}
+        >
+          {options.map((option, index) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              className="activity-year-option"
+              aria-selected={option.value === value}
+              tabIndex={active === index ? 0 : -1}
+              ref={(element) => {
+                items.current[index] = element;
+              }}
+              onFocus={() => setActive(index)}
+              onClick={() => {
+                close(true);
+                if (option.value !== value) onChange(option.value);
+              }}
+            >
+              <span>{option.label}</span>
+              {option.value === value && <Check size={14} aria-hidden="true" />}
+            </button>
+          ))}
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
 export default function StatisticsPanel({
   statistics,
   autoRipple,
@@ -106,30 +279,21 @@ export default function StatisticsPanel({
       controller.abort();
     };
   }, [year, statistics, retry]);
-  const data =
-    year === "recent"
-      ? statistics
-      : historical?.year === year
-        ? historical.data
-        : undefined;
+  const data = year === "recent" ? statistics : historical?.data || statistics;
+  const pendingYear =
+    year !== "recent" && historical?.year !== year && !yearError;
+  const shownYear =
+    year === "recent" || !historical ? "recent" : historical.year;
   const yearControl = (
-    <select
-      className="activity-year"
-      aria-label="活动年份"
+    <ActivityYearPicker
       value={year}
-      onChange={(e) => {
-        setYear(e.target.value);
-        setHistorical(null);
+      years={statistics?.years || []}
+      pending={pendingYear}
+      onChange={(value) => {
+        setYear(value);
         setYearError("");
       }}
-    >
-      <option value="recent">最近 365 天</option>
-      {statistics?.years?.map((y) => (
-        <option key={y} value={String(y)}>
-          {y} 年
-        </option>
-      ))}
-    </select>
+    />
   );
   return (
     <motion.section
@@ -170,13 +334,22 @@ export default function StatisticsPanel({
           )}
         </div>
       ) : (
-        <StatisticsContent
-          key={year}
-          statistics={data}
-          autoRipple={autoRipple}
-          yearControl={yearControl}
-          rangeLabel={year === "recent" ? "最近 365 天" : `${year} 年`}
-        />
+        <>
+          {yearError && (
+            <div className="activity-year-error" role="alert">
+              {yearError}
+              <button onClick={() => setRetry((n) => n + 1)}>重试</button>
+            </div>
+          )}
+          <StatisticsContent
+            statistics={data}
+            autoRipple={autoRipple}
+            yearControl={yearControl}
+            rangeLabel={
+              shownYear === "recent" ? "最近 365 天" : `${shownYear} 年`
+            }
+          />
+        </>
       )}
     </motion.section>
   );
