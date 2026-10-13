@@ -27,7 +27,7 @@ pnpm check
 pnpm test
 pnpm --dir web build
 pnpm test:cloudflare
-pnpm --dir cloudflare deploy
+pnpm --dir cloudflare run deploy
 pnpm --dir cloudflare exec wrangler secret put BOOTSTRAP_TOKEN
 node scripts/verify-cloudflare.mjs
 ```

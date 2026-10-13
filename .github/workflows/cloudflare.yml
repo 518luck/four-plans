@@ -80,6 +80,6 @@ jobs:
             echo '::error::Add CLOUDFLARE_API_TOKEN to repository Actions secrets.'
             exit 1
           fi
-          pnpm --dir cloudflare deploy
+          pnpm --dir cloudflare run deploy
       - name: Verify online service
         run: node scripts/verify-cloudflare.mjs

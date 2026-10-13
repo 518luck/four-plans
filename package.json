@@ -13,7 +13,7 @@
     "check:cloudflare": "pnpm --dir cloudflare check",
     "test:cloudflare": "pnpm --dir cloudflare test",
     "dev:cloudflare": "pnpm --dir cloudflare dev",
-    "deploy:cloudflare": "pnpm --dir web build && pnpm --dir cloudflare deploy"
+    "deploy:cloudflare": "pnpm --dir web build && pnpm --dir cloudflare run deploy"
   },
   "devDependencies": {
     "prettier": "3.9.10"
