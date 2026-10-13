@@ -4,16 +4,22 @@
   <p>个人计划工具 · 本地数据 · 桌面与手机</p>
 </div>
 
+## 产品展示
+
+### 计划总览
+
 <p align="center">
-  <img src="docs/preview-desktop.jpg" alt="四格计划桌面看板，展示今天、三天、本周和本月计划" width="900">
+  <img src="docs/preview-desktop.jpg" alt="计划总览：今天、三天、本周和本月看板" width="900">
+</p>
+
+### 计划统计
+
+<p align="center">
+  <img src="docs/preview-statistics-ripple-visible.png" alt="计划统计：完成率、连续记录和带日期波纹的活动热力图" width="900">
 </p>
 
 <p align="center">
-  <a href="docs/preview-mobile.jpg">手机端预览</a>
-  ·
-  <a href="docs/preview-statistics-ripple-visible.png">统计热力图预览</a>
-  ·
-  <a href="docs/preview-recurring-total-progress.png">持久计划预览</a>
+  更多界面：<a href="docs/preview-mobile.jpg">手机端</a> · <a href="docs/preview-recurring-total-progress.png">持久计划</a>
 </p>
 
 ## 四个时间视角
@@ -36,14 +42,6 @@
 - **完成统计：** 查看完成率与连续完成天数；按日、周或累计总量浏览活动热力图，也可以查看历史年份。
 - **轻柔动效：** 统计热力图会以边框波纹提示日期活动；图标、卡片和主题切换也有响应动效，并遵循系统的减少动态效果设置。
 - **个人设置：** 浅色与深色主题、每日鼓励语，以及本地 Go 堆内存和 SQLite 文件用量。
-
-## 界面预览
-
-<p align="center">
-  <img src="docs/preview-statistics-ripple-visible.png" alt="计划统计页的完成活动热力图与日期波纹效果" width="760">
-</p>
-
-<p align="center"><sub>完成活动按实际完成日期统计，支持悬停、键盘浏览和手机横向滚动。</sub></p>
 
 ## 快速开始
 
