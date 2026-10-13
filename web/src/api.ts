@@ -1,51 +1,13 @@
-export type Bucket = "today" | "three" | "week" | "month";
-export interface Task {
-  id: string;
-  recurringId?: string;
-  title: string;
-  notes: string;
-  bucket: Bucket;
-  date: string;
-  done: boolean;
-  priority: boolean;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt?: string;
-  completedAt?: string;
-  completionDateEstimated?: boolean;
-}
-export interface ActivityDay {
-  date: string;
-  count: number;
-  cumulative: number;
-}
-export interface PlanStatistics {
-  totalPlans: number;
-  completedPlans: number;
-  completionRate: number;
-  longestStreak: number;
-  currentStreak: number;
-  estimatedCompletions: number;
-  start: string;
-  end: string;
-  days: ActivityDay[];
-  years: number[];
-}
-export interface Board {
-  date: string;
-  periods: Record<Bucket, { start: string; end: string }>;
-  buckets: Record<Bucket, Task[]>;
-  carryovers: Task[];
-  trash: Task[];
-  syncedAt: string;
-  statistics: PlanStatistics;
-  recurringPlans: RecurringPlan[];
-}
-export interface Session {
-  configured: boolean;
-  user: { username: string } | null;
-}
+export type {
+  Bucket,
+  Task,
+  ActivityDay,
+  PlanStatistics,
+  Board,
+  Session,
+  RecurringPlan,
+  DailyQuote,
+} from "../../shared/contracts";
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -103,26 +65,4 @@ export function dateLabel(date: string, weekday = false): string {
     day: "numeric",
     ...(weekday ? { weekday: "long" as const } : {}),
   }).format(new Date(`${date}T12:00:00Z`));
-}
-
-export interface RecurringPlan {
-  id: string;
-  title: string;
-  notes: string;
-  start: string;
-  end: string;
-  status: "active" | "paused" | "stopped";
-  effectiveDate: string;
-  version: number;
-  generated: number;
-  completed: number;
-  createdAt: string;
-  updatedAt: string;
-}
-export interface DailyQuote {
-  date: string;
-  text: string;
-  author: string;
-  source: string;
-  fallback: boolean;
 }

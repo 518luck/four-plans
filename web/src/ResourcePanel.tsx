@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
-import { CloudOff, Cpu, Database, RotateCw } from "lucide-react";
+import { CloudOff, Cloud, Cpu, Database, RotateCw } from "lucide-react";
 import { request } from "./api";
 import "./resources.css";
 
 type ResourceUsage = {
-  memory: { usedBytes: number | null; source: "go_heap" };
-  storage: { usedBytes: number | null; source: "sqlite_files" };
+  memory: {
+    usedBytes: number | null;
+    source: "go_heap" | "worker_unavailable";
+    limitBytes?: number;
+  };
+  storage: { usedBytes: number | null; source: "sqlite_files" | "d1" };
   cloudflareConnected: boolean;
   updatedAt: string;
 };
@@ -65,7 +69,7 @@ export default function ResourcePanel() {
     <section className="resource-panel" aria-label="资源用量">
       <header>
         <strong>资源用量</strong>
-        <span>本地</span>
+        <span>{usage?.cloudflareConnected ? "Cloudflare" : "本地"}</span>
         <button
           type="button"
           disabled={loading}
@@ -77,26 +81,55 @@ export default function ResourcePanel() {
         </button>
       </header>
       <dl>
-        <div title="当前 Go 进程已分配的堆内存，不代表容器总内存或 Cloudflare 配额。">
+        <div
+          title={
+            usage?.cloudflareConnected
+              ? "Workers 无法直接读取当前内存占用；显示未知值。128 MiB 是实例上限，不是已用量。"
+              : "当前 Go 进程已分配的堆内存，不代表容器总内存或 Cloudflare 配额。"
+          }
+        >
           <dt>
             <Cpu size={13} />
             运行内存
           </dt>
           <dd>{bytes(usage?.memory.usedBytes)}</dd>
-          <small>Go 已分配堆</small>
+          <small>
+            {usage?.cloudflareConnected
+              ? "Workers · 已用内存不可读取"
+              : "Go 已分配堆"}
+          </small>
+          {usage?.memory.limitBytes && (
+            <small>实例上限 {bytes(usage.memory.limitBytes)}</small>
+          )}
         </div>
-        <div title="当前 SQLite 数据库文件与 WAL 日志的实际大小，包含回收站和已分配的数据页。">
+        <div
+          title={
+            usage?.cloudflareConnected
+              ? "当前 Cloudflare D1 数据库实际大小，包含回收站和已分配的数据页。"
+              : "当前 SQLite 数据库文件与 WAL 日志的实际大小，包含回收站和已分配的数据页。"
+          }
+        >
           <dt>
             <Database size={13} />
             数据库存储
           </dt>
           <dd>{bytes(usage?.storage.usedBytes)}</dd>
-          <small>SQLite · 数据库 + 日志</small>
+          <small>
+            {usage?.cloudflareConnected
+              ? "Cloudflare D1"
+              : "SQLite · 数据库 + 日志"}
+          </small>
         </div>
       </dl>
       <p className="resource-cloud-status">
-        <CloudOff size={12} />
-        Cloudflare 未接入
+        {usage?.cloudflareConnected ? (
+          <Cloud size={12} />
+        ) : (
+          <CloudOff size={12} />
+        )}
+        {usage?.cloudflareConnected
+          ? "Workers + D1 已连接"
+          : "Cloudflare 未接入"}
       </p>
       <p className="resource-update" role="status">
         {loading

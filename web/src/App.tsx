@@ -275,13 +275,16 @@ function Modal({
 
 function AuthScreen({
   configured,
+  bootstrapRequired = false,
   onSuccess,
 }: {
   configured: boolean;
+  bootstrapRequired?: boolean;
   onSuccess: (username: string) => void;
 }) {
   const [username, setUsername] = useState(configured ? "" : "我的计划");
   const [password, setPassword] = useState("");
+  const [accessKey, setAccessKey] = useState("");
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -293,7 +296,14 @@ function AuthScreen({
     try {
       const user = await request<{ username: string }>(
         hasAccount ? "/api/login" : "/api/setup",
-        { method: "POST", body: jsonBody({ username, password }) },
+        {
+          method: "POST",
+          body: jsonBody({
+            username,
+            password,
+            ...(!hasAccount && bootstrapRequired ? { accessKey } : {}),
+          }),
+        },
       );
       onSuccess(user.username);
     } catch (error) {
@@ -389,6 +399,19 @@ function AuthScreen({
               </button>
             </div>
           </label>
+          {!hasAccount && bootstrapRequired && (
+            <label>
+              初始化密钥
+              <input
+                type="password"
+                autoComplete="off"
+                required
+                value={accessKey}
+                onChange={(event) => setAccessKey(event.target.value)}
+                placeholder="由部署者提供，只在首次创建账号时使用"
+              />
+            </label>
+          )}
           {error && (
             <p className="form-error" role="alert">
               {error}
@@ -1088,6 +1111,7 @@ export default function App() {
         <AuthScreen
           key={String(session.configured)}
           configured={session.configured}
+          bootstrapRequired={session.bootstrapRequired}
           onSuccess={(username) =>
             setSession({ configured: true, user: { username } })
           }

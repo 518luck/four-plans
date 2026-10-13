@@ -1,11 +1,24 @@
 {
- "$schema":"../node_modules/wrangler/config-schema.json",
- "name":"four-plans",
- "main":"src/index.ts",
- "compatibility_date":"2026-10-13",
- "workers_dev":true,
- "assets":{"directory":"../web/dist","binding":"ASSETS","not_found_handling":"single-page-application","run_worker_first":["/api/*"]},
- "d1_databases":[{"binding":"DB","database_name":"four-plans","database_id":"00000000-0000-0000-0000-000000000000","migrations_dir":"migrations"}],
- "observability":{"enabled":true},
- "limits":{"cpu_ms":10}
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "four-plans",
+  "account_id": "82416f760d0bb34c6649cdc0561d9167",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "four-plans",
+      "database_id": "5982a73b-752c-4b32-b1ac-6b7acbb25809",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "observability": { "enabled": true },
 }
