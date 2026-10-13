@@ -9,7 +9,7 @@
 ### 计划总览
 
 <p align="center">
-  <img src="docs/preview-desktop.jpg" alt="计划总览：今天、三天、本周和本月看板" width="900">
+  <img src="docs/preview-overview-current.jpg" alt="最新版计划总览：今天、三天、本周和本月看板" width="900">
 </p>
 
 ### 计划统计
