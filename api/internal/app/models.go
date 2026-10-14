@@ -41,6 +41,23 @@ type Period struct {
 	End   string `json:"end"`
 }
 
+func addDays(date string, days int) string {
+	t, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return date
+	}
+	return t.AddDate(0, 0, days).Format("2006-01-02")
+}
+
+func lastDayOfMonth(date string) string {
+	t, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return date
+	}
+	first := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return first.AddDate(0, 1, -1).Format("2006-01-02")
+}
+
 func periods(date string, location *time.Location) (map[string]Period, error) {
 	day, err := time.ParseInLocation("2006-01-02", date, location)
 	if err != nil || day.Format("2006-01-02") != date {

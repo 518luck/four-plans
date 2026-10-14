@@ -183,6 +183,91 @@ func TestRollingWindowCarryoversAndMove(t *testing.T) {
 	}
 }
 
+func TestAutoPromoteCascadingPipeline(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+
+	// 1. 三天计划在第 2 天不应过期，在第 3 天应自动移入今天计划
+	threeTask := f.create(t, "three", "2026-10-14", "工作：10 个智能体", false)
+
+	// 10-15（第 2 天，已过 1 天）：仍在三天计划中，不能进入 carryovers
+	b15 := f.board(t, "2026-10-15")
+	if len(b15.Carryovers) != 0 {
+		t.Fatalf("three-day task must not expire after 1 day: carryovers=%+v", b15.Carryovers)
+	}
+	if len(b15.Buckets["three"]) != 1 || b15.Buckets["three"][0].ID != threeTask.ID {
+		t.Fatalf("three-day task must remain in three bucket on day 2: %+v", b15.Buckets["three"])
+	}
+
+	// 10-16（第 3 天，已过 2 天）：自动移入今天计划
+	b16 := f.board(t, "2026-10-16")
+	if len(b16.Buckets["today"]) != 1 || b16.Buckets["today"][0].ID != threeTask.ID {
+		t.Fatalf("three-day task must promote to today on day 3: %+v", b16.Buckets["today"])
+	}
+	if len(b16.Buckets["three"]) != 0 {
+		t.Fatalf("promoted task should leave three bucket: %+v", b16.Buckets["three"])
+	}
+
+	// 10-17（今天计划未完成，跨日后进入 carryovers）
+	b17 := f.board(t, "2026-10-17")
+	if len(b17.Carryovers) != 1 || b17.Carryovers[0].ID != threeTask.ID {
+		t.Fatalf("uncompleted today task must enter carryovers: %+v", b17.Carryovers)
+	}
+
+	// 2. 周计划在已过 4 天（周五）应自动移入三天计划
+	// 周一为 2026-10-12
+	weekTask := f.create(t, "week", "2026-10-12", "周目标", false)
+	// 周四 10-15（已过 3 天）：仍在周计划
+	bThur := f.board(t, "2026-10-15")
+	foundWeek := false
+	for _, tsk := range bThur.Buckets["week"] {
+		if tsk.ID == weekTask.ID {
+			foundWeek = true
+		}
+	}
+	if !foundWeek {
+		t.Fatal("week task must stay in week on Thursday")
+	}
+
+	// 周五 10-16（已过 4 天）：自动移入三天计划
+	bFri := f.board(t, "2026-10-16")
+	foundInThree := false
+	for _, tsk := range bFri.Buckets["three"] {
+		if tsk.ID == weekTask.ID {
+			foundInThree = true
+		}
+	}
+	if !foundInThree {
+		t.Fatal("week task must promote to three on Friday (after 4 days)")
+	}
+
+	// 3. 月计划在月末前 7 天（10-25）自动移入周计划
+	monthTask := f.create(t, "month", "2026-10-01", "月度大目标", false)
+	// 10-24（月末前 8 天）：仍在月计划
+	b24 := f.board(t, "2026-10-24")
+	foundInMonth := false
+	for _, tsk := range b24.Buckets["month"] {
+		if tsk.ID == monthTask.ID {
+			foundInMonth = true
+		}
+	}
+	if !foundInMonth {
+		t.Fatal("month task must stay in month before the final 7 days")
+	}
+
+	// 10-25（月末前 7 天）：自动移入周计划
+	b25 := f.board(t, "2026-10-25")
+	foundInWeekPromoted := false
+	for _, tsk := range b25.Buckets["week"] {
+		if tsk.ID == monthTask.ID {
+			foundInWeekPromoted = true
+		}
+	}
+	if !foundInWeekPromoted {
+		t.Fatal("month task must promote to week in final 7 days of the month")
+	}
+}
+
 func TestFocusAndStaleWindowConflict(t *testing.T) {
 	f := newFixture(t)
 	f.setup(t)

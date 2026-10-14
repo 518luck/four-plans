@@ -339,12 +339,78 @@ func (s *Server) board(c *gin.Context) {
 			trash = append(trash, task)
 			continue
 		}
-		period := bounds[task.Bucket]
-		if task.Date >= period.Start && task.Date <= period.End {
-			buckets[task.Bucket] = append(buckets[task.Bucket], task)
-		}
-		if task.Date < period.Start && !task.Done && task.RecurringID == "" {
-			carryovers = append(carryovers, task)
+		switch task.Bucket {
+		case "today":
+			if task.Date == date {
+				buckets["today"] = append(buckets["today"], task)
+			} else if task.Date < date && !task.Done && task.RecurringID == "" {
+				carryovers = append(carryovers, task)
+			}
+		case "three":
+			cycleEnd := addDays(task.Date, 2)
+			if date == cycleEnd {
+				if !task.Done {
+					promoted := task
+					promoted.Bucket = "today"
+					promoted.Date = date
+					buckets["today"] = append(buckets["today"], promoted)
+				} else {
+					buckets["three"] = append(buckets["three"], task)
+				}
+			} else if task.Date <= date && date < cycleEnd {
+				buckets["three"] = append(buckets["three"], task)
+			} else if task.Date >= bounds["three"].Start && task.Date <= bounds["three"].End {
+				buckets["three"] = append(buckets["three"], task)
+			} else if date > cycleEnd && !task.Done && task.RecurringID == "" {
+				carryovers = append(carryovers, task)
+			}
+		case "week":
+			createdDate := task.CreatedAt
+			if len(createdDate) >= 10 {
+				createdDate = createdDate[:10]
+			}
+			friday := addDays(task.Date, 4)
+			sunday := addDays(task.Date, 6)
+			if date == sunday && (createdDate < sunday || date > createdDate) {
+				if !task.Done {
+					promoted := task
+					promoted.Bucket = "today"
+					promoted.Date = date
+					buckets["today"] = append(buckets["today"], promoted)
+				} else {
+					buckets["week"] = append(buckets["week"], task)
+				}
+			} else if date >= friday && date < sunday && (createdDate < friday || date > createdDate) {
+				if !task.Done {
+					promoted := task
+					promoted.Bucket = "three"
+					promoted.Date = friday
+					buckets["three"] = append(buckets["three"], promoted)
+				} else {
+					buckets["week"] = append(buckets["week"], task)
+				}
+			} else if (task.Date <= date && date <= sunday) || (task.Date >= bounds["week"].Start && task.Date <= bounds["week"].End) {
+				buckets["week"] = append(buckets["week"], task)
+			} else if date > sunday && !task.Done && task.RecurringID == "" {
+				carryovers = append(carryovers, task)
+			}
+		case "month":
+			monthEnd := lastDayOfMonth(task.Date)
+			sprintStart := addDays(monthEnd, -6)
+			if date >= sprintStart && date <= monthEnd {
+				if !task.Done {
+					promoted := task
+					promoted.Bucket = "week"
+					promoted.Date = bounds["week"].Start
+					buckets["week"] = append(buckets["week"], promoted)
+				} else {
+					buckets["month"] = append(buckets["month"], task)
+				}
+			} else if (date >= task.Date && date <= monthEnd) || (task.Date >= bounds["month"].Start && task.Date <= bounds["month"].End) {
+				buckets["month"] = append(buckets["month"], task)
+			} else if date > monthEnd && !task.Done && task.RecurringID == "" {
+				carryovers = append(carryovers, task)
+			}
 		}
 	}
 	plans, err := s.readRecurring(c.Request.Context())

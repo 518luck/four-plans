@@ -46,6 +46,11 @@ export function addDays(date: string, amount: number): string {
   result.setUTCDate(result.getUTCDate() + amount);
   return result.toISOString().slice(0, 10);
 }
+export function lastDayOfMonth(date: string): string {
+  const [y, m] = date.split("-").map(Number);
+  const nextMonth = new Date(Date.UTC(y, m, 0));
+  return nextMonth.toISOString().slice(0, 10);
+}
 export function beijingDate(now: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",

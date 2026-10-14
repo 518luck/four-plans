@@ -12,6 +12,7 @@ import {
   boolean,
   beijingDate,
   addDays,
+  lastDayOfMonth,
   periods,
   taskFromRow,
   goalFromRow,
@@ -813,11 +814,93 @@ async function api(request: Request, env: Env): Promise<Response> {
         trash.push(task);
         continue;
       }
-      const span = bounds[task.bucket];
-      if (task.date >= span.start && task.date <= span.end)
-        buckets[task.bucket].push(task);
-      if (task.date < span.start && !task.done && !task.recurringId)
-        carryovers.push(task);
+      switch (task.bucket) {
+        case "today":
+          if (task.date === date) {
+            buckets.today.push(task);
+          } else if (task.date < date && !task.done && !task.recurringId) {
+            carryovers.push(task);
+          }
+          break;
+        case "three": {
+          const cycleEnd = addDays(task.date, 2);
+          if (date === cycleEnd) {
+            if (!task.done) {
+              buckets.today.push({
+                ...task,
+                bucket: "today",
+                date,
+              });
+            } else {
+              buckets.three.push(task);
+            }
+          } else if (task.date <= date && date < cycleEnd) {
+            buckets.three.push(task);
+          } else if (task.date >= bounds.three.start && task.date <= bounds.three.end) {
+            buckets.three.push(task);
+          } else if (date > cycleEnd && !task.done && !task.recurringId) {
+            carryovers.push(task);
+          }
+          break;
+        }
+        case "week": {
+          const createdDate = task.createdAt.slice(0, 10);
+          const friday = addDays(task.date, 4);
+          const sunday = addDays(task.date, 6);
+          if (date === sunday && (createdDate < sunday || date > createdDate)) {
+            if (!task.done) {
+              buckets.today.push({
+                ...task,
+                bucket: "today",
+                date,
+              });
+            } else {
+              buckets.week.push(task);
+            }
+          } else if (date >= friday && date < sunday && (createdDate < friday || date > createdDate)) {
+            if (!task.done) {
+              buckets.three.push({
+                ...task,
+                bucket: "three",
+                date: friday,
+              });
+            } else {
+              buckets.week.push(task);
+            }
+          } else if (
+            (task.date <= date && date <= sunday) ||
+            (task.date >= bounds.week.start && task.date <= bounds.week.end)
+          ) {
+            buckets.week.push(task);
+          } else if (date > sunday && !task.done && !task.recurringId) {
+            carryovers.push(task);
+          }
+          break;
+        }
+        case "month": {
+          const monthEnd = lastDayOfMonth(task.date);
+          const sprintStart = addDays(monthEnd, -6);
+          if (date >= sprintStart && date <= monthEnd) {
+            if (!task.done) {
+              buckets.week.push({
+                ...task,
+                bucket: "week",
+                date: bounds.week.start,
+              });
+            } else {
+              buckets.month.push(task);
+            }
+          } else if (
+            (date >= task.date && date <= monthEnd) ||
+            (task.date >= bounds.month.start && task.date <= bounds.month.end)
+          ) {
+            buckets.month.push(task);
+          } else if (date > monthEnd && !task.done && !task.recurringId) {
+            carryovers.push(task);
+          }
+          break;
+        }
+      }
     }
     return json({
       date,
