@@ -377,3 +377,121 @@
     padding: 20px;
   }
 }
+
+.reminder-settings-section {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 12px 0 8px;
+}
+.settings-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 10px 0;
+  padding: 14px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.settings-field-group label {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-field-group input {
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.settings-field-group select {
+  font-size: 12px;
+  padding: 8px 30px 8px 10px;
+  background-position: right 10px center;
+}
+.settings-reminder-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.settings-reminder-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: 7px;
+}
+.reminder-test-status {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.reminder-test-status.success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+.reminder-test-status.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.reminder-editor-group {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+.reminder-editor-group .checkbox-label {
+  margin-bottom: 0;
+}
+.reminder-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+.reminder-inputs label {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.reminder-inputs input[type="time"] {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.reminder-inputs select {
+  padding: 8px 30px 8px 10px;
+  background-position: right 10px center;
+  font-size: 13px;
+}
+
+.task-meta .task-reminder-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  color: var(--foreground);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.task-meta .task-reminder-tag.reminded {
+  color: var(--muted);
+  opacity: 0.65;
+}

@@ -7,6 +7,7 @@ export type {
   Session,
   RecurringPlan,
   DailyQuote,
+  ReminderSettings,
 } from "../../shared/contracts";
 export class ApiError extends Error {
   status: number;

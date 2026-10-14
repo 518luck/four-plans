@@ -14,6 +14,9 @@ export interface Task {
   deletedAt?: string;
   completedAt?: string;
   completionDateEstimated?: boolean;
+  reminderTime?: string;
+  reminderAdvance?: number;
+  remindedAt?: string;
 }
 export interface ActivityDay {
   date: string;
@@ -32,6 +35,12 @@ export interface PlanStatistics {
   days: ActivityDay[];
   years: number[];
 }
+export interface ReminderSettings {
+  enabled: boolean;
+  webhookUrl: string;
+  webhookSecret?: string;
+  defaultAdvance: number;
+}
 export interface Board {
   date: string;
   periods: Record<Bucket, { start: string; end: string }>;
@@ -41,6 +50,7 @@ export interface Board {
   syncedAt: string;
   statistics: PlanStatistics;
   recurringPlans: RecurringPlan[];
+  reminderSettings?: ReminderSettings;
 }
 export interface Session {
   configured: boolean;

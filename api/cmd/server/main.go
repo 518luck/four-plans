@@ -30,6 +30,7 @@ func main() {
 	server := &http.Server{Addr: net.JoinHostPort(env("HOST", "127.0.0.1"), env("PORT", "8788")), Handler: application.Router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
 	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	go application.StartReminderTicker(stop)
 	go func() {
 		<-stop.Done()
 		ctx, done := context.WithTimeout(context.Background(), 5*time.Second)

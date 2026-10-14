@@ -29,6 +29,8 @@ import {
   LogOut,
   Star,
   X,
+  Bell,
+  Send,
 } from "lucide-react";
 import {
   ArrowDownToLine,
@@ -67,10 +69,12 @@ import {
   type Session,
   type Task,
   type DailyQuote,
+  type ReminderSettings,
 } from "./api";
 import StarSea from "./StarSea";
 import ResourcePanel from "./ResourcePanel";
 import RecurringPanel from "./RecurringPanel";
+import ReminderSettingsPanel from "./ReminderSettingsPanel";
 
 const definitions = {
   today: {
@@ -437,12 +441,14 @@ function AuthScreen({
 function TaskEditor({
   editor,
   anchor,
+  defaultReminderAdvance = 0,
   busy,
   onClose,
   onSave,
 }: {
   editor: Editor;
   anchor: string;
+  defaultReminderAdvance?: number;
   busy: boolean;
   onClose: () => void;
   onSave: (input: {
@@ -451,6 +457,8 @@ function TaskEditor({
     bucket: Bucket;
     date: string;
     priority: boolean;
+    reminderTime?: string;
+    reminderAdvance?: number;
   }) => Promise<boolean>;
 }) {
   const [bucket, setBucket] = useState<Bucket>(
@@ -465,9 +473,29 @@ function TaskEditor({
     editor.reschedule ? addDays(anchor, 1) : editor.task?.date || anchor,
   );
   const [priority, setPriority] = useState(editor.task?.priority || false);
+  const [hasReminder, setHasReminder] = useState(
+    Boolean(editor.task?.reminderTime),
+  );
+  const [reminderTime, setReminderTime] = useState(
+    editor.task?.reminderTime || "09:00",
+  );
+  const [reminderAdvance, setReminderAdvance] = useState(
+    editor.task?.reminderAdvance ?? defaultReminderAdvance ?? 0,
+  );
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (await onSave({ title, notes, bucket, date, priority })) onClose();
+    if (
+      await onSave({
+        title,
+        notes,
+        bucket,
+        date,
+        priority,
+        reminderTime: hasReminder ? reminderTime : "",
+        reminderAdvance: hasReminder ? reminderAdvance : 0,
+      })
+    )
+      onClose();
   }
   return (
     <Modal
@@ -547,7 +575,7 @@ function TaskEditor({
         <label>
           备注 <span className="optional">可选</span>
           <textarea
-            rows={3}
+            rows={2}
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
             maxLength={1000}
@@ -565,6 +593,44 @@ function TaskEditor({
             设为这一天的优先事项
           </label>
         )}
+        <div className="reminder-editor-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={hasReminder}
+              onChange={(event) => setHasReminder(event.target.checked)}
+            />
+            <Bell size={16} />
+            设置飞书提醒
+          </label>
+          {hasReminder && (
+            <div className="reminder-inputs">
+              <label>
+                提醒时间
+                <input
+                  type="time"
+                  value={reminderTime}
+                  onChange={(event) => setReminderTime(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                提醒偏好
+                <select
+                  value={reminderAdvance}
+                  onChange={(event) =>
+                    setReminderAdvance(Number(event.target.value))
+                  }
+                >
+                  <option value={0}>准时提醒</option>
+                  <option value={5}>提前 5 分钟</option>
+                  <option value={15}>提前 15 分钟</option>
+                  <option value={30}>提前 30 分钟</option>
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
         <div className="modal-footer">
           <button
             type="button"
@@ -663,6 +729,22 @@ function TaskRow({
             <span className="focus-tag">
               <Star size={11} fill="currentColor" />
               先做这个
+            </span>
+          )}
+          {task.reminderTime && (
+            <span
+              className={`task-reminder-tag ${task.remindedAt ? "reminded" : ""}`}
+              title={
+                task.remindedAt
+                  ? `已于 ${task.remindedAt.slice(11, 16)} 提醒`
+                  : task.reminderAdvance
+                    ? `将在 ${task.reminderTime} 提前 ${task.reminderAdvance} 分钟提醒`
+                    : `将在 ${task.reminderTime} 准时提醒`
+              }
+            >
+              <Bell size={11} />
+              {task.reminderTime}
+              {task.reminderAdvance ? ` (-${task.reminderAdvance}m)` : ""}
             </span>
           )}
           {task.bucket === "three" && (
@@ -1807,6 +1889,7 @@ export default function App() {
         <TaskEditor
           editor={editor}
           anchor={anchor}
+          defaultReminderAdvance={board?.reminderSettings?.defaultAdvance ?? 0}
           busy={busy}
           onClose={() => setEditor(null)}
           onSave={(input) =>
@@ -2101,6 +2184,15 @@ export default function App() {
                 来源
               </a>
             </div>
+            <ReminderSettingsPanel
+              initialSettings={board?.reminderSettings}
+              onSaved={(newSettings) =>
+                setBoard((b) =>
+                  b ? { ...b, reminderSettings: newSettings } : b,
+                )
+              }
+              onNotify={(msg) => notify(msg)}
+            />
             <ResourcePanel />
           </div>
         </Modal>

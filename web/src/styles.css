@@ -100,6 +100,20 @@ select:focus {
   outline: none;
   box-shadow: 0 0 0 3px var(--focus-shadow);
 }
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 16px 16px;
+  padding-right: 38px;
+  cursor: pointer;
+}
+:root[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a3a3a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
 textarea {
   resize: vertical;
 }
@@ -1203,10 +1217,25 @@ summary {
   max-width: 100%;
   max-height: 90dvh;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 17px;
   box-shadow: 0 18px 80px #00000026;
+}
+.modal::-webkit-scrollbar {
+  width: 6px;
+}
+.modal::-webkit-scrollbar-track {
+  background: transparent;
+}
+.modal::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.modal::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 .modal.wide {
   width: 680px;
@@ -1230,8 +1259,8 @@ summary {
   display: block;
   font-size: 12px;
   color: var(--secondary);
-  margin-bottom: 17px;
-  line-height: 1.7;
+  margin-bottom: 13px;
+  line-height: 1.6;
 }
 .editor-form label input,
 .editor-form label textarea,
@@ -1272,12 +1301,15 @@ summary {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  padding: 20px 25px 23px;
+  padding: 18px 25px 20px;
   background: var(--surface-muted);
   border-top: 1px solid var(--border);
 }
 .editor-form > .modal-footer {
-  margin: 22px -25px 0;
+  margin: 18px -25px 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
 }
 .source-goal {
   display: flex;

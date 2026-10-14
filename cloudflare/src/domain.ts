@@ -91,6 +91,9 @@ export function taskFromRow(row: Row): Task {
     completedAt: row.completed_at ? String(row.completed_at) : undefined,
     recurringId: row.recurring_id ? String(row.recurring_id) : undefined,
     completionDateEstimated: !!row.completion_date_estimated,
+    reminderTime: row.reminder_time ? String(row.reminder_time) : undefined,
+    reminderAdvance: row.reminder_advance ? Number(row.reminder_advance) : 0,
+    remindedAt: row.reminded_at ? String(row.reminded_at) : undefined,
   };
 }
 export function goalFromRow(row: Row): RecurringPlan {
@@ -112,6 +115,20 @@ export function goalFromRow(row: Row): RecurringPlan {
 export function validateTask(task: Task): void {
   task.title = task.title.trim();
   task.notes = task.notes.trim();
+  if (task.reminderTime) {
+    task.reminderTime = task.reminderTime.trim();
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(task.reminderTime)) {
+      bad("提醒时间格式无效，请输入 HH:mm");
+    }
+    if (
+      task.reminderAdvance !== undefined &&
+      (task.reminderAdvance < 0 || task.reminderAdvance > 120)
+    ) {
+      bad("提醒提前时间无效");
+    }
+  } else {
+    task.reminderAdvance = 0;
+  }
   if (!task.title || [...task.title].length > 160)
     bad("计划标题需要 1–160 个字");
   if ([...task.notes].length > 1000) bad("备注最多 1000 个字");

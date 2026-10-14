@@ -3,6 +3,7 @@ package app
 import (
 	"database/sql"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,6 +24,16 @@ type Task struct {
 	DeletedAt               string `json:"deletedAt,omitempty"`
 	CompletedAt             string `json:"completedAt,omitempty"`
 	CompletionDateEstimated bool   `json:"completionDateEstimated,omitempty"`
+	ReminderTime            string `json:"reminderTime,omitempty"`
+	ReminderAdvance         int    `json:"reminderAdvance"`
+	RemindedAt              string `json:"remindedAt,omitempty"`
+}
+
+type ReminderSettings struct {
+	Enabled        bool   `json:"enabled"`
+	WebhookURL     string `json:"webhookUrl"`
+	WebhookSecret  string `json:"webhookSecret,omitempty"`
+	DefaultAdvance int    `json:"defaultAdvance"`
 }
 
 type Period struct {
@@ -45,14 +56,27 @@ func periods(date string, location *time.Location) (map[string]Period, error) {
 	}, nil
 }
 
+var timeRegex = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
+
 func validateTask(task *Task, location *time.Location) error {
 	task.Title = strings.TrimSpace(task.Title)
 	task.Notes = strings.TrimSpace(task.Notes)
+	task.ReminderTime = strings.TrimSpace(task.ReminderTime)
 	if task.Title == "" || utf8.RuneCountInString(task.Title) > 160 {
 		return errors.New("计划标题需要 1–160 个字")
 	}
 	if utf8.RuneCountInString(task.Notes) > 1000 {
 		return errors.New("备注最多 1000 个字")
+	}
+	if task.ReminderTime != "" {
+		if !timeRegex.MatchString(task.ReminderTime) {
+			return errors.New("提醒时间格式无效，请输入 HH:mm")
+		}
+		if task.ReminderAdvance < 0 || task.ReminderAdvance > 120 {
+			return errors.New("提醒提前时间无效")
+		}
+	} else {
+		task.ReminderAdvance = 0
 	}
 	ranges, err := periods(task.Date, location)
 	if err != nil {
@@ -71,13 +95,13 @@ func validateTask(task *Task, location *time.Location) error {
 	return nil
 }
 
-const taskColumns = "id,title,notes,bucket,scheduled_date,done,priority,version,created_at,updated_at,COALESCE(deleted_at,''),COALESCE(completed_at,''),completion_date_estimated,recurring_id"
+const taskColumns = "id,title,notes,bucket,scheduled_date,done,priority,version,created_at,updated_at,COALESCE(deleted_at,''),COALESCE(completed_at,''),completion_date_estimated,recurring_id,COALESCE(reminder_time,''),COALESCE(reminder_advance,0),COALESCE(reminded_at,'')"
 
 type scanner interface{ Scan(...any) error }
 
 func scanTask(row scanner) (Task, error) {
 	var task Task
-	err := row.Scan(&task.ID, &task.Title, &task.Notes, &task.Bucket, &task.Date, &task.Done, &task.Priority, &task.Version, &task.CreatedAt, &task.UpdatedAt, &task.DeletedAt, &task.CompletedAt, &task.CompletionDateEstimated, &task.RecurringID)
+	err := row.Scan(&task.ID, &task.Title, &task.Notes, &task.Bucket, &task.Date, &task.Done, &task.Priority, &task.Version, &task.CreatedAt, &task.UpdatedAt, &task.DeletedAt, &task.CompletedAt, &task.CompletionDateEstimated, &task.RecurringID, &task.ReminderTime, &task.ReminderAdvance, &task.RemindedAt)
 	return task, err
 }
 

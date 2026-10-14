@@ -1,4 +1,9 @@
-import type { Task, RecurringPlan, DailyQuote } from "../../shared/contracts";
+import type {
+  Task,
+  RecurringPlan,
+  DailyQuote,
+  ReminderSettings,
+} from "../../shared/contracts";
 import {
   HttpError,
   bad,
@@ -48,6 +53,199 @@ function json(data: unknown, status = 200): Response {
 function conflict(): never {
   throw new HttpError(409, "计划已在其他窗口更新，请刷新后重试", "conflict");
 }
+
+async function generateFeishuSign(
+  timestamp: number,
+  secret: string,
+): Promise<string> {
+  const enc = new TextEncoder();
+  const stringToSign = `${timestamp}\n${secret}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(stringToSign),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, enc.encode(""));
+  const binary = String.fromCharCode(...new Uint8Array(signature));
+  return btoa(binary);
+}
+
+async function sendFeishuNotification(
+  webhookUrl: string,
+  secret: string,
+  title: string,
+  text: string,
+): Promise<void> {
+  const payload: Record<string, unknown> = {
+    msg_type: "post",
+    content: {
+      post: {
+        zh_cn: {
+          title,
+          content: [[{ tag: "text", text }]],
+        },
+      },
+    },
+  };
+  if (secret) {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const sign = await generateFeishuSign(timestamp, secret);
+    payload.timestamp = String(timestamp);
+    payload.sign = sign;
+  }
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new HttpError(
+      400,
+      `飞书服务响应错误 (HTTP ${res.status}): ${errText}`,
+      "webhook_failed",
+    );
+  }
+  const resData = (await res.json().catch(() => ({}))) as {
+    code?: number;
+    StatusCode?: number;
+    msg?: string;
+  };
+  if (resData.code !== undefined && resData.code !== 0) {
+    throw new HttpError(
+      400,
+      `飞书推送失败 (${resData.code}): ${resData.msg || ""}`,
+      "webhook_failed",
+    );
+  }
+  if (resData.StatusCode !== undefined && resData.StatusCode !== 0) {
+    throw new HttpError(
+      400,
+      `飞书推送失败 (${resData.StatusCode}): ${resData.msg || ""}`,
+      "webhook_failed",
+    );
+  }
+}
+
+async function loadReminderSettings(db: DB): Promise<ReminderSettings> {
+  const rows = (
+    await db
+      .prepare(
+        "SELECT key, value FROM settings WHERE key IN ('reminder_enabled', 'feishu_webhook_url', 'feishu_webhook_secret', 'default_reminder_advance')",
+      )
+      .all<Row>()
+  ).results;
+  const settings: ReminderSettings = {
+    enabled: false,
+    webhookUrl: "",
+    webhookSecret: "",
+    defaultAdvance: 0,
+  };
+  for (const row of rows) {
+    const k = String(row.key),
+      v = String(row.value);
+    if (k === "reminder_enabled") settings.enabled = v === "true";
+    if (k === "feishu_webhook_url") settings.webhookUrl = v;
+    if (k === "feishu_webhook_secret") settings.webhookSecret = v;
+    if (k === "default_reminder_advance")
+      settings.defaultAdvance = Number(v) || 0;
+  }
+  return settings;
+}
+
+async function saveReminderSettings(
+  db: DB,
+  settings: ReminderSettings,
+  now: string,
+): Promise<void> {
+  const statements = [
+    db
+      .prepare(
+        "INSERT INTO settings(key, value, updated_at) VALUES('reminder_enabled', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+      )
+      .bind(settings.enabled ? "true" : "false", now),
+    db
+      .prepare(
+        "INSERT INTO settings(key, value, updated_at) VALUES('feishu_webhook_url', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+      )
+      .bind(settings.webhookUrl, now),
+    db
+      .prepare(
+        "INSERT INTO settings(key, value, updated_at) VALUES('feishu_webhook_secret', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+      )
+      .bind(settings.webhookSecret || "", now),
+    db
+      .prepare(
+        "INSERT INTO settings(key, value, updated_at) VALUES('default_reminder_advance', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+      )
+      .bind(String(settings.defaultAdvance), now),
+  ];
+  await db.batch(statements);
+}
+
+async function checkAndSendReminders(db: DB, now: Date): Promise<void> {
+  const settings = await loadReminderSettings(db);
+  if (!settings.enabled || !settings.webhookUrl) return;
+  const currentDate = beijingDate(now);
+  const rows = (
+    await db
+      .prepare(
+        "SELECT * FROM tasks WHERE user_id=1 AND scheduled_date=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL",
+      )
+      .bind(currentDate)
+      .all<Row>()
+  ).results;
+  const tasks = rows.map(taskFromRow);
+  for (const task of tasks) {
+    if (!task.reminderTime) continue;
+    const taskDate = new Date(`${task.date}T${task.reminderTime}:00+08:00`);
+    if (isNaN(taskDate.getTime())) continue;
+    const triggerTime = new Date(
+      taskDate.getTime() - (task.reminderAdvance || 0) * 60000,
+    );
+    if (now.getTime() < triggerTime.getTime()) continue;
+
+    const priorityTag = task.priority ? " · 今日重点" : "";
+    const advanceText =
+      (task.reminderAdvance || 0) > 0
+        ? `提前 ${task.reminderAdvance} 分钟提醒`
+        : "准时提醒";
+    const bucketNames: Record<string, string> = {
+      today: "今天",
+      three: "三天",
+      week: "本周",
+      month: "本月",
+    };
+    const bucketName = bucketNames[task.bucket] || task.bucket;
+
+    const lines = [
+      `🎯 计划：${task.title}`,
+      `⏰ 时间：${task.reminderTime} (${advanceText})`,
+      `📌 类别：${bucketName}计划${priorityTag}`,
+    ];
+    if (task.notes) lines.push(`📝 备注：${task.notes}`);
+
+    try {
+      await sendFeishuNotification(
+        settings.webhookUrl,
+        settings.webhookSecret || "",
+        "四格计划 · 提醒",
+        lines.join("\n"),
+      );
+      await db
+        .prepare(
+          "UPDATE tasks SET reminded_at=? WHERE id=? AND (reminded_at='' OR reminded_at IS NULL)",
+        )
+        .bind(now.toISOString(), task.id)
+        .run();
+    } catch (e) {
+      console.error("send feishu reminder failed", e);
+    }
+  }
+}
+
 async function currentUser(
   db: DB,
   request: Request,
@@ -149,6 +347,8 @@ async function taskRoute(
       "bucket",
       "date",
       "priority",
+      "reminderTime",
+      "reminderAdvance",
     ]);
     const task: Task = {
       id: randomToken(12),
@@ -158,6 +358,11 @@ async function taskRoute(
       date: text(body.date),
       done: false,
       priority: body.priority === undefined ? false : boolean(body.priority),
+      reminderTime: body.reminderTime ? String(body.reminderTime) : undefined,
+      reminderAdvance:
+        body.reminderAdvance !== undefined && body.reminderAdvance !== null
+          ? Number(body.reminderAdvance)
+          : 0,
       version: 1,
       createdAt: stamp,
       updatedAt: stamp,
@@ -165,7 +370,7 @@ async function taskRoute(
     validateTask(task);
     await db
       .prepare(
-        "INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,created_at,updated_at) VALUES(?,1,?,?,?,?,?,?,?)",
+        "INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,created_at,updated_at,reminder_time,reminder_advance) VALUES(?,1,?,?,?,?,?,?,?,?,?)",
       )
       .bind(
         task.id,
@@ -176,6 +381,8 @@ async function taskRoute(
         task.priority ? 1 : 0,
         stamp,
         stamp,
+        task.reminderTime || "",
+        task.reminderAdvance || 0,
       )
       .run();
     return json(task, 201);
@@ -189,6 +396,8 @@ async function taskRoute(
         "date",
         "done",
         "priority",
+        "reminderTime",
+        "reminderAdvance",
       ]),
       version = integer(body.version);
     const task = await findTask(db, id);
@@ -201,6 +410,17 @@ async function taskRoute(
     if (body.date !== undefined) task.date = text(body.date);
     if (body.done !== undefined) task.done = boolean(body.done);
     if (body.priority !== undefined) task.priority = boolean(body.priority);
+    if (body.reminderTime !== undefined) {
+      const newTime = body.reminderTime ? String(body.reminderTime) : undefined;
+      if (task.reminderTime !== newTime) task.remindedAt = undefined;
+      task.reminderTime = newTime;
+    }
+    if (body.reminderAdvance !== undefined) {
+      const newAdv =
+        body.reminderAdvance !== null ? Number(body.reminderAdvance) : 0;
+      if (task.reminderAdvance !== newAdv) task.remindedAt = undefined;
+      task.reminderAdvance = newAdv;
+    }
     validateTask(task);
     if (task.done && !wasDone) {
       task.completedAt = stamp;
@@ -213,7 +433,7 @@ async function taskRoute(
     task.updatedAt = stamp;
     const result = await db
       .prepare(
-        "UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=version+1,updated_at=?,completed_at=?,completion_date_estimated=? WHERE id=? AND user_id=1 AND version=? AND deleted_at IS NULL",
+        "UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=version+1,updated_at=?,completed_at=?,completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=? WHERE id=? AND user_id=1 AND version=? AND deleted_at IS NULL",
       )
       .bind(
         task.title,
@@ -225,6 +445,9 @@ async function taskRoute(
         stamp,
         task.completedAt || null,
         task.completionDateEstimated ? 1 : 0,
+        task.reminderTime || "",
+        task.reminderAdvance || 0,
+        task.remindedAt || "",
         id,
         version,
       )
@@ -604,7 +827,60 @@ async function api(request: Request, env: Env): Promise<Response> {
       trash,
       recurringPlans: await goals(db),
       statistics: statistics(tasks, now),
+      reminderSettings: await loadReminderSettings(db),
       syncedAt: stamp,
+    });
+  }
+  if (path === "/api/settings/reminder") {
+    if (request.method === "GET") {
+      return json(await loadReminderSettings(db));
+    }
+    if (request.method === "PUT") {
+      const body = await input(request, [
+        "enabled",
+        "webhookUrl",
+        "webhookSecret",
+        "defaultAdvance",
+      ]);
+      const webhookUrl = text(body.webhookUrl, "").trim();
+      const webhookSecret = text(body.webhookSecret, "").trim();
+      const enabled = boolean(body.enabled);
+      const defaultAdvance =
+        body.defaultAdvance !== undefined ? Number(body.defaultAdvance) : 0;
+      if (enabled && !webhookUrl) bad("开启提醒需填写飞书机器人 Webhook 地址");
+      if (defaultAdvance < 0 || defaultAdvance > 120) bad("提前时间无效");
+      const settings: ReminderSettings = {
+        enabled,
+        webhookUrl,
+        webhookSecret,
+        defaultAdvance,
+      };
+      await saveReminderSettings(db, settings, stamp);
+      return json(settings);
+    }
+  }
+  if (path === "/api/settings/reminder/test" && request.method === "POST") {
+    const body = await input(request, ["webhookUrl", "webhookSecret"]);
+    let webhookUrl = text(body.webhookUrl, "").trim();
+    let webhookSecret = text(body.webhookSecret, "").trim();
+    if (!webhookUrl) {
+      const current = await loadReminderSettings(db);
+      if (current.webhookUrl) {
+        webhookUrl = current.webhookUrl;
+        if (!webhookSecret) webhookSecret = current.webhookSecret || "";
+      }
+    }
+    if (!webhookUrl) bad("请先填写飞书机器人 Webhook 地址");
+    const testMsg = `🎉 这是一条来自四格计划的测试通知！\n⏰ 发送时间：${now.toISOString()}\n✅ 飞书自定义机器人连接成功，到点将为你推送计划提醒。`;
+    await sendFeishuNotification(
+      webhookUrl,
+      webhookSecret,
+      "四格计划 · 测试提醒",
+      testMsg,
+    );
+    return json({
+      status: "ok",
+      message: "测试提醒已发送，请检查飞书群聊或单聊消息",
     });
   }
   if (path === "/api/statistics" && request.method === "GET") {
@@ -667,5 +943,8 @@ export default {
     response.headers.set("X-Frame-Options", "DENY");
     response.headers.set("Referrer-Policy", "same-origin");
     return response;
+  },
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    await checkAndSendReminders(env.DB, new Date());
   },
 } satisfies ExportedHandler<Env>;

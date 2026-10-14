@@ -5,10 +5,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 const origin = "https://local.test";
-const sql = await readFile(
+const sql1 = await readFile(
   new URL("../migrations/0001_initial.sql", import.meta.url),
   "utf8",
 );
+const sql2 = await readFile(
+  new URL("../migrations/0002_add_reminders.sql", import.meta.url),
+  "utf8",
+);
+const sql = sql1 + "\n" + sql2;
 async function fixture(t) {
   const persist = await mkdtemp(path.join(tmpdir(), "four-plans-d1-"));
   const options = {
@@ -35,7 +40,7 @@ async function fixture(t) {
   let db = await mf.getD1Database("DB");
   const statements = sql
     .replace(/--[^\n]*/g, "")
-    .match(/CREATE\s+TRIGGER[\s\S]*?END;|CREATE[\s\S]*?;/g);
+    .match(/CREATE\s+TRIGGER[\s\S]*?END;|(?:CREATE|ALTER)[\s\S]*?;/g);
   for (const statement of statements) await db.prepare(statement).run();
   let cookie = "";
   const send = async (method, url, body, extraHeaders = {}) => {
@@ -372,4 +377,63 @@ test("historic leap-year statistics, resource truth and cached quote fallback", 
     ).status,
     400,
   );
+});
+
+test("reminder settings and task reminder flow", async (t) => {
+  const f = await fixture(t);
+  await f.setup();
+
+  // Initial reminder settings
+  const initRes = await f.send("GET", "/api/settings/reminder");
+  assert.equal(initRes.status, 200);
+  const initSettings = await initRes.json();
+  assert.equal(initSettings.enabled, false);
+
+  // Update reminder settings
+  const updateRes = await f.send("PUT", "/api/settings/reminder", {
+    enabled: true,
+    webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/test-token",
+    webhookSecret: "test-secret",
+    defaultAdvance: 15,
+  });
+  assert.equal(updateRes.status, 200);
+
+  // Verify updated settings
+  const verifyRes = await f.send("GET", "/api/settings/reminder");
+  assert.equal(verifyRes.status, 200);
+  const settings = await verifyRes.json();
+  assert.equal(settings.enabled, true);
+  assert.equal(settings.defaultAdvance, 15);
+
+  // Board contains reminderSettings
+  const boardRes = await f.send("GET", "/api/board");
+  assert.equal(boardRes.status, 200);
+  const board = await boardRes.json();
+  assert.equal(board.reminderSettings?.enabled, true);
+  assert.equal(board.reminderSettings?.defaultAdvance, 15);
+
+  // Create task with reminder
+  const taskRes = await f.send("POST", "/api/tasks", {
+    title: "飞书提醒计划",
+    bucket: "today",
+    date: "2026-10-13",
+    priority: true,
+    reminderTime: "14:30",
+    reminderAdvance: 15,
+  });
+  assert.equal(taskRes.status, 201);
+  const task = await taskRes.json();
+  assert.equal(task.reminderTime, "14:30");
+  assert.equal(task.reminderAdvance, 15);
+
+  // Update task reminder
+  const patchRes = await f.send("PATCH", "/api/tasks/" + task.id, {
+    version: task.version,
+    reminderTime: "15:00",
+    reminderAdvance: 5,
+  });
+  assert.equal(patchRes.status, 200);
+  const updated = await patchRes.json();
+  assert.equal(updated.reminderTime, "15:00");
+  assert.equal(updated.reminderAdvance, 5);
 });

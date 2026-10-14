@@ -79,6 +79,9 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/trash/:id/restore", s.restoreTask)
 	protected.DELETE("/trash/:id", s.purgeTask)
 	protected.GET("/export", s.export)
+	protected.GET("/settings/reminder", s.getReminderSettings)
+	protected.PUT("/settings/reminder", s.updateReminderSettings)
+	protected.POST("/settings/reminder/test", s.testReminderWebhook)
 	router.NoRoute(s.serveFrontend)
 	return router
 }
@@ -349,21 +352,24 @@ func (s *Server) board(c *gin.Context) {
 		s.internal(c, err)
 		return
 	}
-	c.JSON(200, gin.H{"recurringPlans": plans, "date": date, "periods": bounds, "buckets": buckets, "carryovers": carryovers, "trash": trash, "statistics": calculateStatistics(tasks, s.now(), s.location), "syncedAt": stamp(s.now())})
+	reminderSettings, _ := s.loadReminderSettings(c.Request.Context())
+	c.JSON(200, gin.H{"recurringPlans": plans, "date": date, "periods": bounds, "buckets": buckets, "carryovers": carryovers, "trash": trash, "statistics": calculateStatistics(tasks, s.now(), s.location), "reminderSettings": reminderSettings, "syncedAt": stamp(s.now())})
 }
 
 func (s *Server) createTask(c *gin.Context) {
 	var input struct {
-		Title    string `json:"title"`
-		Notes    string `json:"notes"`
-		Bucket   string `json:"bucket"`
-		Date     string `json:"date"`
-		Priority bool   `json:"priority"`
+		Title           string `json:"title"`
+		Notes           string `json:"notes"`
+		Bucket          string `json:"bucket"`
+		Date            string `json:"date"`
+		Priority        bool   `json:"priority"`
+		ReminderTime    string `json:"reminderTime"`
+		ReminderAdvance int    `json:"reminderAdvance"`
 	}
 	if !bind(c, &input) {
 		return
 	}
-	task := Task{Title: input.Title, Notes: input.Notes, Bucket: input.Bucket, Date: input.Date, Priority: input.Priority, Version: 1, CreatedAt: stamp(s.now()), UpdatedAt: stamp(s.now())}
+	task := Task{Title: input.Title, Notes: input.Notes, Bucket: input.Bucket, Date: input.Date, Priority: input.Priority, ReminderTime: input.ReminderTime, ReminderAdvance: input.ReminderAdvance, Version: 1, CreatedAt: stamp(s.now()), UpdatedAt: stamp(s.now())}
 	if err := validateTask(&task, s.location); err != nil {
 		fail(c, 400, err.Error(), "invalid")
 		return
@@ -386,7 +392,7 @@ func (s *Server) createTask(c *gin.Context) {
 			return
 		}
 	}
-	_, err = tx.ExecContext(c.Request.Context(), `INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,version,created_at,updated_at) VALUES(?,1,?,?,?,?,?,?,?,?)`, task.ID, task.Title, task.Notes, task.Bucket, task.Date, task.Priority, task.Version, task.CreatedAt, task.UpdatedAt)
+	_, err = tx.ExecContext(c.Request.Context(), `INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,version,created_at,updated_at,reminder_time,reminder_advance) VALUES(?,1,?,?,?,?,?,?,?,?,?,?)`, task.ID, task.Title, task.Notes, task.Bucket, task.Date, task.Priority, task.Version, task.CreatedAt, task.UpdatedAt, task.ReminderTime, task.ReminderAdvance)
 	if err != nil {
 		s.internal(c, err)
 		return
@@ -400,13 +406,15 @@ func (s *Server) createTask(c *gin.Context) {
 
 func (s *Server) updateTask(c *gin.Context) {
 	var input struct {
-		Version  int     `json:"version"`
-		Title    *string `json:"title"`
-		Notes    *string `json:"notes"`
-		Bucket   *string `json:"bucket"`
-		Date     *string `json:"date"`
-		Done     *bool   `json:"done"`
-		Priority *bool   `json:"priority"`
+		Version         int     `json:"version"`
+		Title           *string `json:"title"`
+		Notes           *string `json:"notes"`
+		Bucket          *string `json:"bucket"`
+		Date            *string `json:"date"`
+		Done            *bool   `json:"done"`
+		Priority        *bool   `json:"priority"`
+		ReminderTime    *string `json:"reminderTime"`
+		ReminderAdvance *int    `json:"reminderAdvance"`
 	}
 	if !bind(c, &input) {
 		return
@@ -453,6 +461,18 @@ func (s *Server) updateTask(c *gin.Context) {
 	if input.Priority != nil {
 		task.Priority = *input.Priority
 	}
+	if input.ReminderTime != nil {
+		if task.ReminderTime != *input.ReminderTime {
+			task.RemindedAt = ""
+		}
+		task.ReminderTime = *input.ReminderTime
+	}
+	if input.ReminderAdvance != nil {
+		if task.ReminderAdvance != *input.ReminderAdvance {
+			task.RemindedAt = ""
+		}
+		task.ReminderAdvance = *input.ReminderAdvance
+	}
 	if err := validateTask(&task, s.location); err != nil {
 		fail(c, 400, err.Error(), "invalid")
 		return
@@ -472,7 +492,7 @@ func (s *Server) updateTask(c *gin.Context) {
 			return
 		}
 	}
-	_, err = tx.ExecContext(c.Request.Context(), `UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=?,updated_at=?,completed_at=NULLIF(?,''),completion_date_estimated=? WHERE id=? AND user_id=1`, task.Title, task.Notes, task.Bucket, task.Date, task.Done, task.Priority, task.Version, task.UpdatedAt, task.CompletedAt, task.CompletionDateEstimated, task.ID)
+	_, err = tx.ExecContext(c.Request.Context(), `UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=?,updated_at=?,completed_at=NULLIF(?,''),completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=? WHERE id=? AND user_id=1`, task.Title, task.Notes, task.Bucket, task.Date, task.Done, task.Priority, task.Version, task.UpdatedAt, task.CompletedAt, task.CompletionDateEstimated, task.ReminderTime, task.ReminderAdvance, task.RemindedAt, task.ID)
 	if err != nil {
 		s.internal(c, err)
 		return
