@@ -118,6 +118,102 @@ const order: Bucket[] = ["today", "three", "week", "month"];
 const StatisticsPanel = lazy(() => import("./StatisticsPanel"));
 type Theme = "light" | "dark";
 
+function applyTaskOptimisticUpdate(
+  prevBoard: Board,
+  task: Task,
+  change: Partial<Task>,
+): Board {
+  const optimisticTask: Task = {
+    ...task,
+    ...change,
+    updatedAt: new Date().toISOString(),
+  };
+  if (change.done !== undefined) {
+    if (change.done && !task.done) {
+      optimisticTask.completedAt = optimisticTask.updatedAt;
+    } else if (!change.done) {
+      optimisticTask.completedAt = undefined;
+    }
+  }
+
+  const targetBucket = change.bucket || task.bucket;
+  const nextBuckets = { ...prevBoard.buckets };
+
+  for (const b of ["today", "three", "week", "month"] as const) {
+    let list = nextBuckets[b] ? [...nextBuckets[b]] : [];
+    if (b === task.bucket && change.bucket && change.bucket !== task.bucket) {
+      list = list.filter((t) => t.id !== task.id);
+    } else if (b === targetBucket) {
+      const exists = list.some((t) => t.id === task.id);
+      if (exists) {
+        list = list.map((t) => (t.id === task.id ? optimisticTask : t));
+      } else {
+        list = [...list, optimisticTask];
+      }
+    }
+    if (
+      change.priority === true &&
+      targetBucket === "today" &&
+      b === "today"
+    ) {
+      list = list.map((t) =>
+        t.id === task.id ? t : { ...t, priority: false },
+      );
+    }
+    nextBuckets[b] = list;
+  }
+
+  let nextCarryovers = prevBoard.carryovers ? [...prevBoard.carryovers] : [];
+  if (change.bucket === "today" && nextCarryovers.some((t) => t.id === task.id)) {
+    nextCarryovers = nextCarryovers.filter((t) => t.id !== task.id);
+  } else {
+    nextCarryovers = nextCarryovers.map((t) =>
+      t.id === task.id ? optimisticTask : t,
+    );
+  }
+
+  const nextStats = { ...prevBoard.statistics };
+  if (change.done !== undefined && change.done !== task.done) {
+    if (change.done) {
+      nextStats.completedPlans = (nextStats.completedPlans || 0) + 1;
+    } else {
+      nextStats.completedPlans = Math.max(0, (nextStats.completedPlans || 0) - 1);
+    }
+    nextStats.completionRate =
+      nextStats.totalPlans > 0
+        ? Math.round(
+            (nextStats.completedPlans / nextStats.totalPlans) * 100,
+          )
+        : 0;
+  }
+
+  return {
+    ...prevBoard,
+    buckets: nextBuckets,
+    carryovers: nextCarryovers,
+    statistics: nextStats,
+  };
+}
+
+function mergeServerTask(prevBoard: Board, serverTask: Task): Board {
+  const nextBuckets = { ...prevBoard.buckets };
+  for (const b of ["today", "three", "week", "month"] as const) {
+    if (nextBuckets[b]) {
+      nextBuckets[b] = nextBuckets[b].map((t) =>
+        t.id === serverTask.id ? { ...t, ...serverTask } : t,
+      );
+    }
+  }
+  const nextCarryovers = (prevBoard.carryovers || []).map((t) =>
+    t.id === serverTask.id ? { ...t, ...serverTask } : t,
+  );
+  return {
+    ...prevBoard,
+    buckets: nextBuckets,
+    carryovers: nextCarryovers,
+  };
+}
+
 function ThemeToggle({
   theme,
   onToggle,
@@ -857,6 +953,12 @@ export default function App() {
   const realDate = useRef(today());
   const [editor, setEditor] = useState<Editor | null>(null);
   const draggedTaskRef = useRef<Task | null>(null);
+  const updatingTaskIdsRef = useRef<Set<string>>(new Set());
+  const [updatingTaskIds, setUpdatingTaskIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const boardRef = useRef<Board | null>(null);
+  boardRef.current = board;
   const pointerDragRef = useRef<{
     task: Task;
     pointerId: number;
@@ -1053,7 +1155,11 @@ export default function App() {
         realDate.current = date;
         if (anchor !== date) return;
       }
-      if (!busyRef.current && document.visibilityState === "visible")
+      if (
+        !busyRef.current &&
+        updatingTaskIdsRef.current.size === 0 &&
+        document.visibilityState === "visible"
+      )
         void loadBoard();
     };
     const interval = window.setInterval(refresh, 30000);
@@ -1095,23 +1201,71 @@ export default function App() {
       setBusy(false);
     }
   }
-  function update(task: Task, change: Partial<Task>, message: string) {
+
+  async function update(
+    task: Task,
+    change: Partial<Task>,
+    message: string,
+  ): Promise<boolean> {
+    if (updatingTaskIdsRef.current.has(task.id)) return false;
+
     if (change.done === true) {
       const words = [
         "又向前走了一步。",
         "今天的努力，已经留下了记录。",
         "小小的完成，也值得肯定。",
       ];
-      message = `已完成 · ${words[(board?.statistics.completedPlans || 0) % words.length]}`;
+      message = `已完成 · ${words[(boardRef.current?.statistics.completedPlans || 0) % words.length]}`;
+      const targetBucket = change.bucket || task.bucket;
+      setCompletedExpanded((exp) =>
+        exp[targetBucket] ? exp : { ...exp, [targetBucket]: true },
+      );
     }
-    return mutate(
-      () =>
-        request(`/api/tasks/${task.id}`, {
-          method: "PATCH",
-          body: jsonBody({ version: task.version, ...change }),
-        }),
-      message,
-    );
+
+    const previousBoard = boardRef.current;
+    if (previousBoard) {
+      const nextBoard = applyTaskOptimisticUpdate(
+        previousBoard,
+        task,
+        change,
+      );
+      setBoard(nextBoard);
+    }
+
+    notify(message);
+    setSync("saving");
+
+    updatingTaskIdsRef.current.add(task.id);
+    setUpdatingTaskIds(new Set(updatingTaskIdsRef.current));
+
+    try {
+      const serverTask = await request<Task>(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        body: jsonBody({ version: task.version, ...change }),
+      });
+
+      setBoard((current) =>
+        current ? mergeServerTask(current, serverTask) : current,
+      );
+      setSync("synced");
+      return true;
+    } catch (error) {
+      if (previousBoard) {
+        setBoard(previousBoard);
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        setSession({ configured: true, user: null });
+        setBoard(null);
+      } else if (error instanceof ApiError && error.status === 409) {
+        await loadBoard();
+      }
+      notify((error as Error).message, true);
+      setSync("offline");
+      return false;
+    } finally {
+      updatingTaskIdsRef.current.delete(task.id);
+      setUpdatingTaskIds(new Set(updatingTaskIdsRef.current));
+    }
   }
   async function moveTask(task: Task, bucket: Bucket, date: string) {
     if (task.bucket === bucket) return false;
@@ -1224,98 +1378,103 @@ export default function App() {
     ) : (
       <LoaderCircle className="spin" size={14} />
     );
-  const row = (task: Task) => (
-    <TaskRow
-      key={task.id}
-      task={task}
-      busy={busy}
-      onToggle={() =>
-        void update(
-          task,
-          { done: !task.done },
-          task.done ? "已恢复为未完成" : "又完成了一步",
-        )
-      }
-      onFocus={() =>
-        void update(
-          task,
-          { priority: !task.priority },
-          task.priority ? "已取消优先标记" : "今天先做这件事",
-        )
-      }
-      onEdit={() => setEditor({ bucket: task.bucket, task })}
-      onDelete={() => setRemove(task)}
-      onBreakdown={() => setEditor({ bucket: "today", source: task })}
-      dragging={draggedTask?.id === task.id}
-      onPointerDown={(event) => {
-        const target = event.target as HTMLElement;
-        if (
-          busyRef.current ||
-          !currentBoard ||
-          !event.isPrimary ||
-          event.button !== 0 ||
-          target.closest("button, input, textarea, select, a") ||
-          (event.pointerType !== "mouse" && !target.closest(".task-grip"))
-        )
-          return;
-        event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        pointerDragRef.current = {
-          task,
-          pointerId: event.pointerId,
-          startX: event.clientX,
-          startY: event.clientY,
-          anchor,
-          active: false,
-        };
-      }}
-      onPointerMove={(event) => {
-        const drag = pointerDragRef.current;
-        if (!drag || drag.pointerId !== event.pointerId) return;
-        if (
-          !drag.active &&
-          Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) <
-            6
-        )
-          return;
-        event.preventDefault();
-        if (!drag.active) {
-          drag.active = true;
-          draggedTaskRef.current = drag.task;
-          setDraggedTask(drag.task);
+  const row = (task: Task) => {
+    const isTaskUpdating = updatingTaskIds.has(task.id);
+    return (
+      <TaskRow
+        key={task.id}
+        task={task}
+        busy={busy || isTaskUpdating}
+        onToggle={() =>
+          void update(
+            task,
+            { done: !task.done },
+            task.done ? "已恢复为未完成" : "又完成了一步",
+          )
         }
-        dragPositionRef.current = { x: event.clientX, y: event.clientY };
-        setDragPosition(dragPositionRef.current);
-        const bucket = document
-          .elementFromPoint(event.clientX, event.clientY)
-          ?.closest<HTMLElement>("[data-plan-bucket]")?.dataset.planBucket as
-          Bucket | undefined;
-        setDropBucket(bucket && bucket !== drag.task.bucket ? bucket : null);
-      }}
-      onPointerUp={(event) => {
-        const drag = pointerDragRef.current;
-        if (!drag || drag.pointerId !== event.pointerId) return;
-        const bucket = document
-          .elementFromPoint(event.clientX, event.clientY)
-          ?.closest<HTMLElement>("[data-plan-bucket]")?.dataset.planBucket as
-          Bucket | undefined;
-        endDrag();
-        if (
-          drag.active &&
-          bucket &&
-          bucket !== drag.task.bucket &&
-          !busyRef.current &&
-          currentBoard
-        )
-          void moveTask(
-            drag.task,
-            bucket,
-            moveDate(drag.task, bucket, drag.anchor),
-          );
-      }}
-      onPointerCancel={endDrag}
-    />
-  );
+        onFocus={() =>
+          void update(
+            task,
+            { priority: !task.priority },
+            task.priority ? "已取消优先标记" : "今天先做这件事",
+          )
+        }
+        onEdit={() => setEditor({ bucket: task.bucket, task })}
+        onDelete={() => setRemove(task)}
+        onBreakdown={() => setEditor({ bucket: "today", source: task })}
+        dragging={draggedTask?.id === task.id}
+        onPointerDown={(event) => {
+          const target = event.target as HTMLElement;
+          if (
+            busyRef.current ||
+            isTaskUpdating ||
+            !currentBoard ||
+            !event.isPrimary ||
+            event.button !== 0 ||
+            target.closest("button, input, textarea, select, a") ||
+            (event.pointerType !== "mouse" && !target.closest(".task-grip"))
+          )
+            return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          pointerDragRef.current = {
+            task,
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            anchor,
+            active: false,
+          };
+        }}
+        onPointerMove={(event) => {
+          const drag = pointerDragRef.current;
+          if (!drag || drag.pointerId !== event.pointerId) return;
+          if (
+            !drag.active &&
+            Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) <
+              6
+          )
+            return;
+          event.preventDefault();
+          if (!drag.active) {
+            drag.active = true;
+            draggedTaskRef.current = drag.task;
+            setDraggedTask(drag.task);
+          }
+          dragPositionRef.current = { x: event.clientX, y: event.clientY };
+          setDragPosition(dragPositionRef.current);
+          const bucket = document
+            .elementFromPoint(event.clientX, event.clientY)
+            ?.closest<HTMLElement>("[data-plan-bucket]")?.dataset.planBucket as
+            Bucket | undefined;
+          setDropBucket(bucket && bucket !== drag.task.bucket ? bucket : null);
+        }}
+        onPointerUp={(event) => {
+          const drag = pointerDragRef.current;
+          if (!drag || drag.pointerId !== event.pointerId) return;
+          const bucket = document
+            .elementFromPoint(event.clientX, event.clientY)
+            ?.closest<HTMLElement>("[data-plan-bucket]")?.dataset.planBucket as
+            Bucket | undefined;
+          endDrag();
+          if (
+            drag.active &&
+            bucket &&
+            bucket !== drag.task.bucket &&
+            !busyRef.current &&
+            !updatingTaskIdsRef.current.has(drag.task.id) &&
+            currentBoard
+          )
+            void moveTask(
+              drag.task,
+              bucket,
+              moveDate(drag.task, bucket, drag.anchor),
+            );
+        }}
+        onPointerCancel={endDrag}
+      />
+    );
+  };
 
   return (
     <div className="app-shell">
@@ -2103,7 +2262,7 @@ export default function App() {
                   <div className="review-actions">
                     <button
                       className="button small primary"
-                      disabled={busy}
+                      disabled={busy || updatingTaskIds.has(task.id)}
                       onClick={() =>
                         void update(
                           task,
