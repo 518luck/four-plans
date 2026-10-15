@@ -2,6 +2,7 @@ import type {
   Task,
   RecurringPlan,
   PlanStatistics,
+  DayDetail,
 } from "../../shared/contracts";
 export type Row = Record<string, unknown>;
 export class HttpError extends Error {
@@ -217,5 +218,62 @@ export function statistics(tasks: Task[], now: Date, year = 0): PlanStatistics {
   }
   for (let y = Number(actualToday.slice(0, 4)); y >= earliestYear; y--)
     result.years.push(y);
+  return result;
+}
+
+export function dayDetail(tasks: Task[], date: string): DayDetail {
+  const result: DayDetail = {
+    date,
+    completed: [],
+    uncompleted: [],
+    total: 0,
+    rate: 0,
+  };
+
+  for (const task of tasks) {
+    if (task.deletedAt) continue;
+
+    let compDate = "";
+    if (task.done) {
+      if (task.completedAt && Number.isFinite(Date.parse(task.completedAt))) {
+        compDate = beijingDate(new Date(task.completedAt));
+      }
+      if (!compDate) compDate = task.date;
+    }
+
+    if (task.done && compDate === date) {
+      result.completed.push(task);
+      continue;
+    }
+
+    if (!task.done || (task.done && compDate > date)) {
+      let active = false;
+      switch (task.bucket) {
+        case "today":
+          active = task.date === date;
+          break;
+        case "three":
+          active = task.date <= date && date <= addDays(task.date, 2);
+          break;
+        case "week":
+          active = task.date <= date && date <= addDays(task.date, 6);
+          break;
+        case "month": {
+          const monthStart = task.date.slice(0, 7) + "-01";
+          const monthEnd = lastDayOfMonth(task.date);
+          active = date >= monthStart && date <= monthEnd;
+          break;
+        }
+      }
+      if (active) {
+        result.uncompleted.push(task);
+      }
+    }
+  }
+
+  result.total = result.completed.length + result.uncompleted.length;
+  result.rate = result.total
+    ? Math.round((result.completed.length * 100) / result.total)
+    : 0;
   return result;
 }

@@ -35,6 +35,13 @@ export interface PlanStatistics {
   days: ActivityDay[];
   years: number[];
 }
+export interface DayDetail {
+  date: string;
+  completed: Task[];
+  uncompleted: Task[];
+  total: number;
+  rate: number;
+}
 export interface ReminderSettings {
   enabled: boolean;
   webhookUrl: string;

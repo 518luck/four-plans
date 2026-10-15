@@ -143,3 +143,93 @@ func (s *Server) statistics(c *gin.Context) {
 	}
 	c.JSON(200, calculateStatisticsRange(tasks, s.now(), s.location, year))
 }
+
+type DayDetail struct {
+	Date        string `json:"date"`
+	Completed   []Task `json:"completed"`
+	Uncompleted []Task `json:"uncompleted"`
+	Total       int    `json:"total"`
+	Rate        int    `json:"rate"`
+}
+
+func calculateDayDetail(tasks []Task, date string, location *time.Location) DayDetail {
+	result := DayDetail{
+		Date:        date,
+		Completed:   make([]Task, 0),
+		Uncompleted: make([]Task, 0),
+	}
+
+	for _, task := range tasks {
+		if task.DeletedAt != "" {
+			continue
+		}
+
+		var compDate string
+		if task.Done {
+			if task.CompletedAt != "" {
+				if t, err := time.Parse(time.RFC3339Nano, task.CompletedAt); err == nil {
+					compDate = t.In(location).Format("2006-01-02")
+				}
+			}
+			if compDate == "" {
+				compDate = task.Date
+			}
+		}
+
+		if task.Done && compDate == date {
+			result.Completed = append(result.Completed, task)
+			continue
+		}
+
+		if !task.Done || (task.Done && compDate > date) {
+			active := false
+			switch task.Bucket {
+			case "today":
+				active = (task.Date == date)
+			case "three":
+				active = (task.Date <= date && date <= addDays(task.Date, 2))
+			case "week":
+				active = (task.Date <= date && date <= addDays(task.Date, 6))
+			case "month":
+				monthStart := task.Date
+				if len(monthStart) >= 7 {
+					monthStart = monthStart[:7] + "-01"
+				}
+				monthEnd := lastDayOfMonth(task.Date)
+				active = (date >= monthStart && date <= monthEnd)
+			}
+			if active {
+				result.Uncompleted = append(result.Uncompleted, task)
+			}
+		}
+	}
+
+	result.Total = len(result.Completed) + len(result.Uncompleted)
+	if result.Total > 0 {
+		result.Rate = int(math.Round(float64(len(result.Completed)) * 100 / float64(result.Total)))
+	}
+	return result
+}
+
+func (s *Server) dayStatistics(c *gin.Context) {
+	date := c.DefaultQuery("date", s.now().In(s.location).Format("2006-01-02"))
+	if _, err := time.ParseInLocation("2006-01-02", date, s.location); err != nil {
+		fail(c, 400, "日期格式无效，请输入 YYYY-MM-DD", "invalid")
+		return
+	}
+	if err := s.generateRecurring(c.Request.Context()); err != nil {
+		s.internal(c, err)
+		return
+	}
+	rows, err := s.db.QueryContext(c.Request.Context(), "SELECT "+taskColumns+" FROM tasks WHERE user_id=1 AND deleted_at IS NULL ORDER BY done, priority DESC, created_at, id")
+	if err != nil {
+		s.internal(c, err)
+		return
+	}
+	tasks, err := readTasks(rows)
+	if err != nil {
+		s.internal(c, err)
+		return
+	}
+	c.JSON(200, calculateDayDetail(tasks, date, s.location))
+}

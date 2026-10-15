@@ -479,3 +479,429 @@ button.heatmap-cell:hover {
     min-height: 28px;
   }
 }
+
+/* Heatmap Selected Day Cell */
+.heatmap-cell[data-selected="true"] {
+  outline: 2px solid var(--foreground);
+  outline-offset: 1px;
+  z-index: 5;
+}
+
+/* Day Record Card */
+.activity-day-card {
+  margin-top: 24px;
+  padding: 24px 25px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--surface);
+  transition: border-color 0.2s;
+}
+
+.activity-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-day-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.activity-day-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.activity-day-title h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+
+.activity-day-title-icon {
+  color: var(--muted);
+}
+
+.activity-day-badge-today {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+:root[data-theme="dark"] .activity-day-badge-today {
+  background: rgba(59, 130, 246, 0.22);
+  color: #60a5fa;
+}
+
+.activity-day-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.activity-day-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.activity-day-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.activity-day-nav-group .icon-button.small {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.activity-day-nav-group .icon-button.small:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.activity-day-today-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.activity-day-today-btn:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.activity-day-go-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.activity-day-go-btn:hover {
+  background: var(--surface-muted);
+  border-color: var(--border);
+}
+
+.activity-day-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.activity-day-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 30px 0;
+  color: #ef4444;
+  font-size: 12px;
+}
+
+.activity-day-error button {
+  text-decoration: underline;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+.activity-day-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 44px 0 36px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.activity-day-empty-icon {
+  margin-bottom: 12px;
+  opacity: 0.45;
+}
+
+.activity-day-empty p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--secondary);
+}
+
+.activity-day-empty small {
+  font-size: 11px;
+}
+
+.activity-day-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding-top: 20px;
+}
+
+@media (max-width: 768px) {
+  .activity-day-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+.activity-day-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.activity-day-col-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.activity-col-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dot-completed {
+  background: #10b981;
+}
+
+.dot-uncompleted {
+  background: #f59e0b;
+}
+
+.activity-day-col-header h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.activity-col-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.activity-day-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.activity-day-list-empty {
+  padding: 18px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  background: var(--surface-muted);
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+}
+
+.activity-day-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.activity-day-task-item:hover {
+  background: var(--surface-muted);
+}
+
+.activity-day-task-item.done {
+  border-left: 3px solid #10b981;
+}
+
+.activity-day-task-item.pending {
+  border-left: 3px solid #f59e0b;
+}
+
+.task-status-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.task-status-icon.done {
+  color: #10b981;
+}
+
+.task-status-icon.pending {
+  color: var(--muted);
+}
+
+.activity-day-task-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-day-task-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.activity-day-task-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.activity-day-task-item.done .activity-day-task-title {
+  color: var(--secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--muted);
+}
+
+.task-priority-star {
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+
+.activity-day-task-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.task-bucket-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.bucket-today {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.bucket-three {
+  background: rgba(6, 182, 212, 0.1);
+  color: #06b6d4;
+}
+
+.bucket-week {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+}
+
+.bucket-month {
+  background: rgba(168, 85, 247, 0.1);
+  color: #9333ea;
+}
+
+:root[data-theme="dark"] .bucket-today {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+:root[data-theme="dark"] .bucket-three {
+  background: rgba(6, 182, 212, 0.2);
+  color: #22d3ee;
+}
+
+:root[data-theme="dark"] .bucket-week {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+:root[data-theme="dark"] .bucket-month {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+}
+
+.task-time-badge {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.task-time-badge.reminder {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #3b82f6;
+}
+
+.activity-day-task-notes {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

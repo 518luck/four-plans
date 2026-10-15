@@ -437,3 +437,40 @@ test("reminder settings and task reminder flow", async (t) => {
   assert.equal(updated.reminderTime, "15:00");
   assert.equal(updated.reminderAdvance, 5);
 });
+
+test("day statistics detail endpoint", async (t) => {
+  const f = await fixture(t);
+  await f.setup();
+
+  const taskRes = await f.send("POST", "/api/tasks", {
+    title: "今日已完成任务",
+    bucket: "today",
+    date: "2026-10-13",
+  });
+  assert.equal(taskRes.status, 201);
+  const task = await taskRes.json();
+
+  await f.send("PATCH", "/api/tasks/" + task.id, {
+    version: task.version,
+    done: true,
+  });
+
+  await f.send("POST", "/api/tasks", {
+    title: "今日未完成任务",
+    bucket: "today",
+    date: "2026-10-13",
+  });
+
+  const res = await f.send("GET", "/api/statistics/day?date=2026-10-13");
+  assert.equal(res.status, 200);
+  const detail = await res.json();
+  assert.equal(detail.date, "2026-10-13");
+  assert.equal(detail.completed.length, 1);
+  assert.equal(detail.completed[0].id, task.id);
+  assert.equal(detail.uncompleted.length, 1);
+  assert.equal(detail.total, 2);
+  assert.equal(detail.rate, 50);
+
+  const badRes = await f.send("GET", "/api/statistics/day?date=bad-date");
+  assert.equal(badRes.status, 400);
+});

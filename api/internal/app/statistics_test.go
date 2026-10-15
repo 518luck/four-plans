@@ -2,6 +2,7 @@ package app
 
 import (
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -158,4 +159,44 @@ func TestStatisticsYearWindowAndGlobalMetrics(t *testing.T) {
 	for _, year := range []string{"no", "0", "10000", "2027"} {
 		expect(t, f.send(t, "GET", "/api/statistics?year="+year, nil), 400)
 	}
+}
+
+func TestDayStatisticsDetail(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+
+	// Create completed task on 2026-10-13
+	doneTask := f.create(t, "today", "2026-10-13", "已完成事项1", false)
+	f.send(t, "PATCH", "/api/tasks/"+doneTask.ID, map[string]any{"version": doneTask.Version, "done": true})
+
+	// Create uncompleted task for today 2026-10-13
+	_ = f.create(t, "today", "2026-10-13", "未完成今日事项", false)
+
+	// Create uncompleted task for three-day 2026-10-12 (active on 10-12, 10-13, 10-14)
+	_ = f.create(t, "three", "2026-10-12", "未完成三天事项", false)
+
+	// Query /api/statistics/day?date=2026-10-13
+	res := f.send(t, "GET", "/api/statistics/day?date=2026-10-13", nil)
+	expect(t, res, 200)
+
+	var detail DayDetail
+	if err := json.Unmarshal(res.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+
+	if detail.Date != "2026-10-13" {
+		t.Fatalf("expected date 2026-10-13, got %s", detail.Date)
+	}
+	if len(detail.Completed) != 1 || detail.Completed[0].ID != doneTask.ID {
+		t.Fatalf("expected 1 completed task, got %+v", detail.Completed)
+	}
+	if len(detail.Uncompleted) != 2 {
+		t.Fatalf("expected 2 uncompleted tasks (today + three), got %+v", detail.Uncompleted)
+	}
+	if detail.Total != 3 || detail.Rate != 33 {
+		t.Fatalf("expected total 3, rate 33, got total=%d rate=%d", detail.Total, detail.Rate)
+	}
+
+	// Query invalid date
+	expect(t, f.send(t, "GET", "/api/statistics/day?date=invalid-date", nil), 400)
 }

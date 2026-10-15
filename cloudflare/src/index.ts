@@ -19,6 +19,7 @@ import {
   validateTask,
   validateGoal,
   statistics,
+  dayDetail,
   type Row,
 } from "./domain";
 import {
@@ -980,6 +981,15 @@ async function api(request: Request, env: Env): Promise<Response> {
     }
     await generate(db, now);
     return json(statistics(await readTasks(db), now, year));
+  }
+  if (path === "/api/statistics/day" && request.method === "GET") {
+    const date = url.searchParams.get("date") || beijingDate(now);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      bad("日期格式无效，请输入 YYYY-MM-DD");
+    }
+    await generate(db, now);
+    const tasks = await readTasks(db);
+    return json(dayDetail(tasks, date));
   }
   if (path === "/api/export" && request.method === "GET") {
     await generate(db, now);

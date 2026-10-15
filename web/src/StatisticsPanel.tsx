@@ -9,14 +9,53 @@ import {
 } from "react";
 import {
   CalendarDays,
+  CalendarCheck,
   Check,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  Circle,
+  Star,
+  Bell,
+  ArrowRight,
   LoaderCircle,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { request, addDays, type ActivityDay, type PlanStatistics } from "./api";
+import {
+  request,
+  addDays,
+  today,
+  dateLabel,
+  type ActivityDay,
+  type PlanStatistics,
+  type DayDetail,
+  type Bucket,
+} from "./api";
 import "./statistics.css";
+
+const bucketLabels: Record<Bucket, string> = {
+  today: "今天计划",
+  three: "三天计划",
+  week: "周计划",
+  month: "月计划",
+};
+
+function formatTime(isoString?: string): string {
+  if (!isoString) return "";
+  try {
+    const d = new Date(isoString);
+    if (!Number.isFinite(d.getTime())) return "";
+    return new Intl.DateTimeFormat("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d);
+  } catch {
+    return "";
+  }
+}
 
 type Mode = "daily" | "weekly" | "cumulative";
 const RIPPLE_DURATION = 1000;
@@ -41,6 +80,16 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
 });
 function longDate(date: string) {
   return dateFormatter.format(new Date(`${date}T12:00:00Z`));
+}
+const fullDateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  weekday: "long",
+});
+function fullDate(date: string) {
+  return fullDateFormatter.format(new Date(`${date}T12:00:00Z`));
 }
 function level(value: number, maximum: number) {
   return value <= 0
@@ -242,12 +291,14 @@ export default function StatisticsPanel({
   loading,
   onRetry,
   onBack,
+  onNavigateToDay,
 }: {
   statistics?: PlanStatistics;
   autoRipple: boolean;
   loading: boolean;
   onRetry: () => void;
   onBack: () => void;
+  onNavigateToDay?: (date: string) => void;
 }) {
   const reduceMotion = useReducedMotion();
   const [year, setYear] = useState("recent");
@@ -348,6 +399,7 @@ export default function StatisticsPanel({
             rangeLabel={
               shownYear === "recent" ? "最近 365 天" : `${shownYear} 年`
             }
+            onNavigateToDay={onNavigateToDay}
           />
         </>
       )}
@@ -360,11 +412,13 @@ function StatisticsContent({
   autoRipple,
   yearControl,
   rangeLabel,
+  onNavigateToDay,
 }: {
   statistics: PlanStatistics;
   autoRipple: boolean;
   yearControl: React.ReactNode;
   rangeLabel: string;
+  onNavigateToDay?: (date: string) => void;
 }) {
   const reduceMotion = useReducedMotion();
   const [mode, setMode] = useState<Mode>("daily");
@@ -376,6 +430,100 @@ function StatisticsContent({
   const rippleSerial = useRef(0);
   const lastInteraction = useRef(0);
   const [activeIndex, setActiveIndex] = useState(statistics.days.length - 1);
+  const [selectedDate, setSelectedDate] = useState<string>(
+    () => statistics.end || today(),
+  );
+  const [dayDetail, setDayDetail] = useState<DayDetail | null>(null);
+  const [dayLoading, setDayLoading] = useState(false);
+  const [dayError, setDayError] = useState("");
+  const dayCache = useRef<Map<string, DayDetail>>(new Map());
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    if (
+      statistics.end &&
+      (selectedDate > statistics.end || selectedDate < statistics.start)
+    ) {
+      setSelectedDate(statistics.end);
+    }
+  }, [statistics.start, statistics.end]);
+
+  useEffect(() => {
+    if (!selectedDate) return;
+    if (dayCache.current.has(selectedDate) && reloadToken === 0) {
+      setDayDetail(dayCache.current.get(selectedDate)!);
+      setDayLoading(false);
+      setDayError("");
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setDayLoading(true);
+    setDayError("");
+    void request<DayDetail>(`/api/statistics/day?date=${selectedDate}`, {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]),
+    })
+      .then((data) => {
+        if (active) {
+          dayCache.current.set(selectedDate, data);
+          setDayDetail(data);
+          setDayLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setDayError((err as Error).message);
+          setDayLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [selectedDate, reloadToken]);
+
+  useEffect(() => {
+    if (mode === "daily") {
+      const idx = statistics.days.findIndex((d) => d.date === selectedDate);
+      if (idx >= 0) {
+        setActiveIndex(idx);
+      }
+    }
+  }, [selectedDate, mode, statistics.days]);
+
+  const handlePrevDay = () => {
+    setSelectedDate((prev) => {
+      const nextDate = addDays(prev, -1);
+      if (statistics.start && nextDate < statistics.start) return prev;
+      return nextDate;
+    });
+  };
+
+  const handleNextDay = () => {
+    setSelectedDate((prev) => {
+      const nextDate = addDays(prev, 1);
+      if (statistics.end && nextDate > statistics.end) return prev;
+      return nextDate;
+    });
+  };
+
+  const handleToday = () => {
+    const currentToday = today();
+    if (
+      (!statistics.start || currentToday >= statistics.start) &&
+      (!statistics.end || currentToday <= statistics.end)
+    ) {
+      setSelectedDate(currentToday);
+    } else if (statistics.end) {
+      setSelectedDate(statistics.end);
+    }
+  };
+
+  const handleRetry = () => {
+    dayCache.current.delete(selectedDate);
+    setReloadToken((t) => t + 1);
+  };
+
   const [tooltip, setTooltip] = useState<{
     kind: "day" | "week";
     index: number;
@@ -537,6 +685,10 @@ function StatisticsContent({
     event.preventDefault();
     const next = Math.max(0, Math.min(total - 1, target));
     setActiveIndex(next);
+    if (mode === "daily") {
+      const day = statistics.days[next];
+      if (day) setSelectedDate(day.date);
+    }
     cells.current[next]?.focus();
   }
   function activate(
@@ -545,10 +697,14 @@ function StatisticsContent({
     index: number,
     column: number,
     row: number,
+    date?: string,
   ) {
     lastInteraction.current = Date.now();
     setActiveIndex(index);
     showTooltip(button, kind, index);
+    if (date) {
+      setSelectedDate(date);
+    }
     if (!reduceMotion)
       setRipple({ column, row, serial: ++rippleSerial.current });
   }
@@ -790,6 +946,9 @@ function StatisticsContent({
                             showTooltip(event.currentTarget, "day", index);
                           }}
                           onBlur={() => setTooltip(null)}
+                          data-selected={
+                            day.date === selectedDate ? "true" : undefined
+                          }
                           onKeyDown={(event) => keyboard(event, index)}
                           onClick={(event) =>
                             activate(
@@ -798,6 +957,7 @@ function StatisticsContent({
                               index,
                               column,
                               row,
+                              day.date,
                             )
                           }
                         >
@@ -854,6 +1014,278 @@ function StatisticsContent({
           </span>
         </footer>
       </section>
+      <DayRecordCard
+        date={selectedDate}
+        detail={dayDetail}
+        loading={dayLoading}
+        error={dayError}
+        minDate={statistics.start}
+        maxDate={statistics.end}
+        onPrevDay={handlePrevDay}
+        onNextDay={handleNextDay}
+        onToday={handleToday}
+        onNavigateToDay={onNavigateToDay}
+        onRetry={handleRetry}
+      />
     </>
+  );
+}
+
+function DayRecordCard({
+  date,
+  detail,
+  loading,
+  error,
+  minDate,
+  maxDate,
+  onPrevDay,
+  onNextDay,
+  onToday,
+  onNavigateToDay,
+  onRetry,
+}: {
+  date: string;
+  detail: DayDetail | null;
+  loading: boolean;
+  error: string;
+  minDate?: string;
+  maxDate?: string;
+  onPrevDay: () => void;
+  onNextDay: () => void;
+  onToday: () => void;
+  onNavigateToDay?: (date: string) => void;
+  onRetry: () => void;
+}) {
+  const isViewingToday = date === today();
+  const canJumpToToday =
+    !isViewingToday &&
+    (!maxDate || today() <= maxDate) &&
+    (!minDate || today() >= minDate);
+  const canJumpToLatest =
+    !isViewingToday && !canJumpToToday && maxDate && date !== maxDate;
+
+  return (
+    <section className="activity-day-card" aria-label="该日计划明细">
+      <header className="activity-day-header">
+        <div className="activity-day-title-wrap">
+          <div className="activity-day-title">
+            <CalendarCheck
+              size={18}
+              className="activity-day-title-icon"
+              aria-hidden="true"
+            />
+            <h3>{fullDate(date)}</h3>
+            {isViewingToday && (
+              <span className="activity-day-badge-today">今天</span>
+            )}
+          </div>
+          {detail && !loading && !error && (
+            <p className="activity-day-meta">
+              {detail.total === 0
+                ? "当天无计划记录"
+                : `共 ${detail.total} 项 · ${detail.completed.length} 项已完成 · ${detail.uncompleted.length} 项未完成 · 完成率 ${detail.rate}%`}
+            </p>
+          )}
+        </div>
+        <div className="activity-day-actions">
+          <div className="activity-day-nav-group">
+            <button
+              className="icon-button small"
+              aria-label="前一天"
+              title="前一天"
+              disabled={Boolean(minDate && date <= minDate)}
+              onClick={onPrevDay}
+            >
+              <ChevronLeft size={14} />
+            </button>
+            {canJumpToToday && (
+              <button
+                className="activity-day-today-btn"
+                onClick={onToday}
+                title="跳转到今天"
+              >
+                回到今天
+              </button>
+            )}
+            {canJumpToLatest && (
+              <button
+                className="activity-day-today-btn"
+                onClick={onToday}
+                title="跳转到该时段最新一天"
+              >
+                回到最新
+              </button>
+            )}
+            <button
+              className="icon-button small"
+              aria-label="后一天"
+              title="后一天"
+              disabled={Boolean(maxDate && date >= maxDate)}
+              onClick={onNextDay}
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+          {onNavigateToDay && (
+            <button
+              className="activity-day-go-btn"
+              onClick={() => onNavigateToDay(date)}
+              title="跳转到该日计划四象限看板"
+            >
+              前往该日计划
+              <ArrowRight size={13} />
+            </button>
+          )}
+        </div>
+      </header>
+
+      {loading ? (
+        <div className="activity-day-loading" role="status">
+          <LoaderCircle size={16} className="spin" aria-hidden="true" />
+          <span>正在加载该日计划明细...</span>
+        </div>
+      ) : error ? (
+        <div className="activity-day-error" role="alert">
+          <span>加载失败：{error}</span>
+          <button onClick={onRetry}>重试</button>
+        </div>
+      ) : !detail || detail.total === 0 ? (
+        <div className="activity-day-empty">
+          <CalendarDays
+            size={32}
+            className="activity-day-empty-icon"
+            aria-hidden="true"
+          />
+          <p>这一天没有任何计划记录</p>
+          <small>可点击上方热力图的其它日期或使用前后箭头切换查看</small>
+        </div>
+      ) : (
+        <div className="activity-day-grid">
+          {/* Completed Tasks */}
+          <div className="activity-day-col">
+            <div className="activity-day-col-header">
+              <span
+                className="activity-col-dot dot-completed"
+                aria-hidden="true"
+              />
+              <h4>已完成</h4>
+              <span className="activity-col-count">
+                {detail.completed.length}
+              </span>
+            </div>
+            <div className="activity-day-task-list">
+              {detail.completed.length === 0 ? (
+                <div className="activity-day-list-empty">暂无已完成计划</div>
+              ) : (
+                detail.completed.map((task) => {
+                  const compTime = formatTime(task.completedAt);
+                  return (
+                    <div key={task.id} className="activity-day-task-item done">
+                      <CircleCheck
+                        size={16}
+                        className="task-status-icon done"
+                        aria-hidden="true"
+                      />
+                      <div className="activity-day-task-content">
+                        <div className="activity-day-task-header">
+                          <span className="activity-day-task-title">
+                            {task.priority && (
+                              <Star
+                                size={12}
+                                className="task-priority-star"
+                                fill="currentColor"
+                                aria-label="高优先级"
+                              />
+                            )}
+                            {task.title}
+                          </span>
+                          <div className="activity-day-task-badges">
+                            <span
+                              className={`task-bucket-badge bucket-${task.bucket}`}
+                            >
+                              {bucketLabels[task.bucket] || task.bucket}
+                            </span>
+                            {compTime && (
+                              <span className="task-time-badge">
+                                {compTime} 完成
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {task.notes && (
+                          <p className="activity-day-task-notes">
+                            {task.notes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Uncompleted Tasks */}
+          <div className="activity-day-col">
+            <div className="activity-day-col-header">
+              <span
+                className="activity-col-dot dot-uncompleted"
+                aria-hidden="true"
+              />
+              <h4>未完成</h4>
+              <span className="activity-col-count">
+                {detail.uncompleted.length}
+              </span>
+            </div>
+            <div className="activity-day-task-list">
+              {detail.uncompleted.length === 0 ? (
+                <div className="activity-day-list-empty">全部计划均已完成</div>
+              ) : (
+                detail.uncompleted.map((task) => (
+                  <div key={task.id} className="activity-day-task-item pending">
+                    <Circle
+                      size={16}
+                      className="task-status-icon pending"
+                      aria-hidden="true"
+                    />
+                    <div className="activity-day-task-content">
+                      <div className="activity-day-task-header">
+                        <span className="activity-day-task-title">
+                          {task.priority && (
+                            <Star
+                              size={12}
+                              className="task-priority-star"
+                              fill="currentColor"
+                              aria-label="高优先级"
+                            />
+                          )}
+                          {task.title}
+                        </span>
+                        <div className="activity-day-task-badges">
+                          <span
+                            className={`task-bucket-badge bucket-${task.bucket}`}
+                          >
+                            {bucketLabels[task.bucket] || task.bucket}
+                          </span>
+                          {task.reminderTime && (
+                            <span className="task-time-badge reminder">
+                              <Bell size={10} aria-hidden="true" />{" "}
+                              {task.reminderTime}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {task.notes && (
+                        <p className="activity-day-task-notes">{task.notes}</p>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

@@ -8,6 +8,7 @@ export type {
   RecurringPlan,
   DailyQuote,
   ReminderSettings,
+  DayDetail,
 } from "../../shared/contracts";
 export class ApiError extends Error {
   status: number;

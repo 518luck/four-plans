@@ -72,6 +72,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/recurring", s.createRecurring)
 	protected.PATCH("/recurring/:id", s.updateRecurring)
 	protected.GET("/statistics", s.statistics)
+	protected.GET("/statistics/day", s.dayStatistics)
 	protected.GET("/quote", s.quote)
 	protected.POST("/tasks", s.createTask)
 	protected.PATCH("/tasks/:id", s.updateTask)
