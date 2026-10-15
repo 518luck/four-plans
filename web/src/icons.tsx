@@ -36,9 +36,8 @@ function animatedIcon(Icon: typeof PlusIcon, Fallback: LucideIcon) {
     useEffect(() => {
       if (reduceMotion) return;
       const trigger =
-        host.current?.closest(
-          "button, .plan-card, .auth-mini, .rule-item",
-        ) || host.current;
+        host.current?.closest("button, .plan-card, .auth-mini, .rule-item") ||
+        host.current;
       if (!trigger) return;
       const start = () => {
         if (trigger instanceof HTMLButtonElement && trigger.disabled) return;

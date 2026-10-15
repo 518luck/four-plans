@@ -29,7 +29,12 @@ export function createStarSea(
   if (!context) return null;
   let renderer: WebGLRenderer;
   try {
-    renderer = new WebGLRenderer({ canvas, context, alpha: true, depth: false });
+    renderer = new WebGLRenderer({
+      canvas,
+      context,
+      alpha: true,
+      depth: false,
+    });
   } catch {
     return null;
   }
@@ -110,6 +115,7 @@ export function createStarSea(
   const points = new Points(geometry, material);
   // Positions are normalized in the shader, so the CPU bounds do not describe them.
   points.frustumCulled = false;
+  points.visible = theme === "dark";
   scene.add(points);
   host.append(canvas);
   let frame = 0;
@@ -122,7 +128,12 @@ export function createStarSea(
   const render = () => {
     if (!contextLost && !disposed) renderer.render(scene, camera);
   };
-  const canAnimate = () => !disposed && !contextLost && visible && !document.hidden && !reducedMotion.matches;
+  const canAnimate = () =>
+    !disposed &&
+    !contextLost &&
+    visible &&
+    !document.hidden &&
+    !reducedMotion.matches;
   const tick = (now: number) => {
     frame = 0;
     if (!canAnimate()) return;
@@ -147,7 +158,10 @@ export function createStarSea(
     if (!width || !height) return;
     const ratio = Math.min(devicePixelRatio || 1, 1.5);
     // Keep the denser sky from crowding the much smaller mobile overview.
-    geometry.setDrawRange(0, Math.min(count, Math.max(900, Math.round(width * height / 65))));
+    geometry.setDrawRange(
+      0,
+      Math.min(count, Math.max(900, Math.round((width * height) / 65))),
+    );
     renderer.setPixelRatio(ratio);
     renderer.setSize(width, height, false);
     material.uniforms.uPixelRatio.value = ratio;
@@ -182,10 +196,20 @@ export function createStarSea(
   host.classList.add("is-ready");
   syncAnimation();
 
+  function updateVisuals(nextTheme: "light" | "dark") {
+    if (nextTheme === "dark") {
+      material.uniforms.uColor.value.set("#ffffff");
+      points.visible = true;
+    } else {
+      points.visible = false;
+    }
+    render();
+  }
+  updateVisuals(theme);
+
   return {
     setTheme(nextTheme) {
-      material.uniforms.uColor.value.set(nextTheme === "dark" ? "#ffffff" : "#171717");
-      render();
+      updateVisuals(nextTheme);
     },
     dispose() {
       disposed = true;

@@ -31,6 +31,7 @@ import {
   X,
   Bell,
   Send,
+  Monitor,
 } from "lucide-react";
 import {
   ArrowDownToLine,
@@ -117,6 +118,7 @@ const definitions = {
 const order: Bucket[] = ["today", "three", "week", "month"];
 const StatisticsPanel = lazy(() => import("./StatisticsPanel"));
 type Theme = "light" | "dark";
+type ThemeMode = "light" | "dark" | "system";
 
 function applyTaskOptimisticUpdate(
   prevBoard: Board,
@@ -151,11 +153,7 @@ function applyTaskOptimisticUpdate(
         list = [...list, optimisticTask];
       }
     }
-    if (
-      change.priority === true &&
-      targetBucket === "today" &&
-      b === "today"
-    ) {
+    if (change.priority === true && targetBucket === "today" && b === "today") {
       list = list.map((t) =>
         t.id === task.id ? t : { ...t, priority: false },
       );
@@ -164,7 +162,10 @@ function applyTaskOptimisticUpdate(
   }
 
   let nextCarryovers = prevBoard.carryovers ? [...prevBoard.carryovers] : [];
-  if (change.bucket === "today" && nextCarryovers.some((t) => t.id === task.id)) {
+  if (
+    change.bucket === "today" &&
+    nextCarryovers.some((t) => t.id === task.id)
+  ) {
     nextCarryovers = nextCarryovers.filter((t) => t.id !== task.id);
   } else {
     nextCarryovers = nextCarryovers.map((t) =>
@@ -177,13 +178,14 @@ function applyTaskOptimisticUpdate(
     if (change.done) {
       nextStats.completedPlans = (nextStats.completedPlans || 0) + 1;
     } else {
-      nextStats.completedPlans = Math.max(0, (nextStats.completedPlans || 0) - 1);
+      nextStats.completedPlans = Math.max(
+        0,
+        (nextStats.completedPlans || 0) - 1,
+      );
     }
     nextStats.completionRate =
       nextStats.totalPlans > 0
-        ? Math.round(
-            (nextStats.completedPlans / nextStats.totalPlans) * 100,
-          )
+        ? Math.round((nextStats.completedPlans / nextStats.totalPlans) * 100)
         : 0;
   }
 
@@ -215,46 +217,49 @@ function mergeServerTask(prevBoard: Board, serverTask: Task): Board {
 }
 
 function ThemeToggle({
-  theme,
-  onToggle,
+  mode,
+  onChange,
   floating = false,
 }: {
-  theme: Theme;
-  onToggle: () => void;
+  mode: ThemeMode;
+  onChange: (mode: ThemeMode) => void;
   floating?: boolean;
 }) {
-  const reduceMotion = useReducedMotion();
-  const label = theme === "dark" ? "切换到浅色主题" : "切换到深色主题";
+  const options: {
+    mode: ThemeMode;
+    label: string;
+    icon: React.ComponentType<{ size?: number | string; className?: string }>;
+  }[] = [
+    { mode: "light", label: "浅色模式", icon: Sun },
+    { mode: "dark", label: "深色模式", icon: Moon },
+    { mode: "system", label: "根据系统", icon: Monitor },
+  ];
+
   return (
-    <button
-      type="button"
-      className={`theme-toggle${floating ? " floating-theme-toggle" : ""}`}
-      aria-label={label}
-      title={label}
-      onClick={onToggle}
+    <div
+      role="radiogroup"
+      aria-label="外观主题"
+      className={`theme-toggle-group${floating ? " floating-theme-toggle" : ""}`}
     >
-      <AnimatePresence initial={false} mode="wait">
-        <motion.span
-          className="theme-icon"
-          key={theme}
-          initial={{
-            opacity: 0,
-            rotate: reduceMotion ? 0 : -35,
-            scale: reduceMotion ? 1 : 0.8,
-          }}
-          animate={{ opacity: 1, rotate: 0, scale: 1 }}
-          exit={{
-            opacity: 0,
-            rotate: reduceMotion ? 0 : 35,
-            scale: reduceMotion ? 1 : 0.8,
-          }}
-          transition={{ duration: reduceMotion ? 0 : 0.16, type: "tween" }}
-        >
-          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-        </motion.span>
-      </AnimatePresence>
-      <span>{theme === "dark" ? "浅色" : "深色"}</span>
-    </button>
+      {options.map((item) => {
+        const Icon = item.icon;
+        const isActive = mode === item.mode;
+        return (
+          <button
+            key={item.mode}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            className={`theme-toggle-btn${isActive ? " is-active" : ""}`}
+            aria-label={item.label}
+            title={item.label}
+            onClick={() => onChange(item.mode)}
+          >
+            <Icon size={14} className="theme-toggle-icon" />
+          </button>
+        );
+      })}
+    </div>
   );
 }
 type Editor = {
@@ -902,39 +907,59 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [view]);
-  const [theme, setTheme] = useState<Theme>(() =>
-    document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    try {
+      const saved = localStorage.getItem("four-plans-theme");
+      if (saved === "light" || saved === "dark" || saved === "system") {
+        return saved;
+      }
+    } catch {
+      // Ignore
+    }
+    return "system";
+  });
+  const [systemTheme, setSystemTheme] = useState<Theme>(() =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light",
   );
   useEffect(() => {
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemTheme(e.matches ? "dark" : "light");
+    };
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+  const theme: Theme = themeMode === "system" ? systemTheme : themeMode;
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.themeMode = themeMode;
     document
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute("content", theme === "dark" ? "#0a0a0a" : "#fafafa");
     try {
-      localStorage.setItem("four-plans-theme", theme);
+      localStorage.setItem("four-plans-theme", themeMode);
     } catch {
       // The current page can still switch themes without saving a preference.
     }
-  }, [theme]);
+  }, [theme, themeMode]);
   useEffect(() => {
     const syncTheme = (event: StorageEvent) => {
       if (
         event.key === "four-plans-theme" &&
-        (event.newValue === "light" || event.newValue === "dark")
+        (event.newValue === "light" ||
+          event.newValue === "dark" ||
+          event.newValue === "system")
       )
-        setTheme(event.newValue);
+        setThemeMode(event.newValue);
     };
     window.addEventListener("storage", syncTheme);
     return () => window.removeEventListener("storage", syncTheme);
   }, []);
   const themeToggle = (floating = false) => (
-    <ThemeToggle
-      theme={theme}
-      onToggle={() =>
-        setTheme((current) => (current === "dark" ? "light" : "dark"))
-      }
-      floating={floating}
-    />
+    <ThemeToggle mode={themeMode} onChange={setThemeMode} floating={floating} />
   );
   const [session, setSession] = useState<Session | null>(null);
   const [initialError, setInitialError] = useState("");
@@ -1224,11 +1249,7 @@ export default function App() {
 
     const previousBoard = boardRef.current;
     if (previousBoard) {
-      const nextBoard = applyTaskOptimisticUpdate(
-        previousBoard,
-        task,
-        change,
-      );
+      const nextBoard = applyTaskOptimisticUpdate(previousBoard, task, change);
       setBoard(nextBoard);
     }
 
@@ -1431,8 +1452,10 @@ export default function App() {
           if (!drag || drag.pointerId !== event.pointerId) return;
           if (
             !drag.active &&
-            Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) <
-              6
+            Math.hypot(
+              event.clientX - drag.startX,
+              event.clientY - drag.startY,
+            ) < 6
           )
             return;
           event.preventDefault();
@@ -1567,7 +1590,6 @@ export default function App() {
             </strong>
           </div>
           <div className="header-actions">
-            {themeToggle()}
             <button
               className="icon-button mobile-utility"
               aria-label="打开持久计划"
@@ -1654,6 +1676,10 @@ export default function App() {
               loading={sync === "loading"}
               onRetry={() => void loadBoard()}
               onBack={() => setView("board")}
+              onNavigateToDay={(targetDate) => {
+                setAnchor(targetDate);
+                setView("board");
+              }}
             />
           </Suspense>
         ) : (
