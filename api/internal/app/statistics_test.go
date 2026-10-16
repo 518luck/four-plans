@@ -175,7 +175,7 @@ func TestDayStatisticsDetail(t *testing.T) {
 	// Create uncompleted task for three-day 2026-10-12 (active on 10-12, 10-13, 10-14)
 	_ = f.create(t, "three", "2026-10-12", "未完成三天事项", false)
 
-	// Query /api/statistics/day?date=2026-10-13
+	// Query /api/statistics/day?date=2026-10-13 (Day 2 of three-day task: not yet in today/uncompleted)
 	res := f.send(t, "GET", "/api/statistics/day?date=2026-10-13", nil)
 	expect(t, res, 200)
 
@@ -190,11 +190,26 @@ func TestDayStatisticsDetail(t *testing.T) {
 	if len(detail.Completed) != 1 || detail.Completed[0].ID != doneTask.ID {
 		t.Fatalf("expected 1 completed task, got %+v", detail.Completed)
 	}
-	if len(detail.Uncompleted) != 2 {
-		t.Fatalf("expected 2 uncompleted tasks (today + three), got %+v", detail.Uncompleted)
+	// On day 2, three-day task is still in 3-day cycle, must not enter uncompleted
+	if len(detail.Uncompleted) != 1 {
+		t.Fatalf("expected 1 uncompleted task on 10-13 (today only), got %+v", detail.Uncompleted)
 	}
-	if detail.Total != 3 || detail.Rate != 33 {
-		t.Fatalf("expected total 3, rate 33, got total=%d rate=%d", detail.Total, detail.Rate)
+	if detail.Total != 2 || detail.Rate != 50 {
+		t.Fatalf("expected total 2, rate 50, got total=%d rate=%d", detail.Total, detail.Rate)
+	}
+
+	// Query /api/statistics/day?date=2026-10-14 (Day 3: three-day task enters 1天/today, if uncompleted enters 未完成)
+	res14 := f.send(t, "GET", "/api/statistics/day?date=2026-10-14", nil)
+	expect(t, res14, 200)
+	var detail14 DayDetail
+	if err := json.Unmarshal(res14.Body.Bytes(), &detail14); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail14.Uncompleted) != 1 {
+		t.Fatalf("expected 1 uncompleted task on 10-14 (three promoted to today), got %+v", detail14.Uncompleted)
+	}
+	if detail14.Uncompleted[0].Bucket != "today" {
+		t.Fatalf("three-day task should promote to today bucket in day detail, got %s", detail14.Uncompleted[0].Bucket)
 	}
 
 	// Query invalid date

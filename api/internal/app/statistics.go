@@ -177,29 +177,47 @@ func calculateDayDetail(tasks []Task, date string, location *time.Location) DayD
 		}
 
 		if task.Done && compDate == date {
-			result.Completed = append(result.Completed, task)
+			finalTask := task
+			if (task.Bucket == "three" && date == addDays(task.Date, 2)) ||
+				(task.Bucket == "week" && date == addDays(task.Date, 6)) ||
+				(task.Bucket == "month" && date == lastDayOfMonth(task.Date)) {
+				finalTask.Bucket = "today"
+				finalTask.Date = date
+			}
+			result.Completed = append(result.Completed, finalTask)
 			continue
 		}
 
 		if !task.Done || (task.Done && compDate > date) {
 			active := false
+			finalTask := task
 			switch task.Bucket {
 			case "today":
 				active = (task.Date == date)
 			case "three":
-				active = (task.Date <= date && date <= addDays(task.Date, 2))
-			case "week":
-				active = (task.Date <= date && date <= addDays(task.Date, 6))
-			case "month":
-				monthStart := task.Date
-				if len(monthStart) >= 7 {
-					monthStart = monthStart[:7] + "-01"
+				cycleEnd := addDays(task.Date, 2)
+				if date == cycleEnd {
+					active = true
+					finalTask.Bucket = "today"
+					finalTask.Date = date
 				}
+			case "week":
+				sunday := addDays(task.Date, 6)
+				if date == sunday {
+					active = true
+					finalTask.Bucket = "today"
+					finalTask.Date = date
+				}
+			case "month":
 				monthEnd := lastDayOfMonth(task.Date)
-				active = (date >= monthStart && date <= monthEnd)
+				if date == monthEnd {
+					active = true
+					finalTask.Bucket = "today"
+					finalTask.Date = date
+				}
 			}
 			if active {
-				result.Uncompleted = append(result.Uncompleted, task)
+				result.Uncompleted = append(result.Uncompleted, finalTask)
 			}
 		}
 	}

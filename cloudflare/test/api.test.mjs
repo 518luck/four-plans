@@ -461,6 +461,14 @@ test("day statistics detail endpoint", async (t) => {
     date: "2026-10-13",
   });
 
+  // Create a 3-day task starting 2026-10-12 (cycle: 10-12, 10-13, 10-14)
+  await f.send("POST", "/api/tasks", {
+    title: "三天任务",
+    bucket: "three",
+    date: "2026-10-12",
+  });
+
+  // Query 2026-10-13 (Day 2 of three-day task): must NOT enter uncompleted yet
   const res = await f.send("GET", "/api/statistics/day?date=2026-10-13");
   assert.equal(res.status, 200);
   const detail = await res.json();
@@ -470,6 +478,13 @@ test("day statistics detail endpoint", async (t) => {
   assert.equal(detail.uncompleted.length, 1);
   assert.equal(detail.total, 2);
   assert.equal(detail.rate, 50);
+
+  // Query 2026-10-14 (Day 3 of three-day task): enters 1天/today and uncompleted
+  const res14 = await f.send("GET", "/api/statistics/day?date=2026-10-14");
+  assert.equal(res14.status, 200);
+  const detail14 = await res14.json();
+  assert.equal(detail14.uncompleted.length, 1);
+  assert.equal(detail14.uncompleted[0].bucket, "today");
 
   const badRes = await f.send("GET", "/api/statistics/day?date=bad-date");
   assert.equal(badRes.status, 400);

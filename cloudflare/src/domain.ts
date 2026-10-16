@@ -243,31 +243,52 @@ export function dayDetail(tasks: Task[], date: string): DayDetail {
     }
 
     if (task.done && compDate === date) {
-      result.completed.push(task);
+      let finalTask = task;
+      if (
+        (task.bucket === "three" && date === addDays(task.date, 2)) ||
+        (task.bucket === "week" && date === addDays(task.date, 6)) ||
+        (task.bucket === "month" && date === lastDayOfMonth(task.date))
+      ) {
+        finalTask = { ...task, bucket: "today", date };
+      }
+      result.completed.push(finalTask);
       continue;
     }
 
     if (!task.done || (task.done && compDate > date)) {
       let active = false;
+      let finalTask = task;
       switch (task.bucket) {
         case "today":
           active = task.date === date;
           break;
-        case "three":
-          active = task.date <= date && date <= addDays(task.date, 2);
+        case "three": {
+          const cycleEnd = addDays(task.date, 2);
+          if (date === cycleEnd) {
+            active = true;
+            finalTask = { ...task, bucket: "today", date };
+          }
           break;
-        case "week":
-          active = task.date <= date && date <= addDays(task.date, 6);
+        }
+        case "week": {
+          const sunday = addDays(task.date, 6);
+          if (date === sunday) {
+            active = true;
+            finalTask = { ...task, bucket: "today", date };
+          }
           break;
+        }
         case "month": {
-          const monthStart = task.date.slice(0, 7) + "-01";
           const monthEnd = lastDayOfMonth(task.date);
-          active = date >= monthStart && date <= monthEnd;
+          if (date === monthEnd) {
+            active = true;
+            finalTask = { ...task, bucket: "today", date };
+          }
           break;
         }
       }
       if (active) {
-        result.uncompleted.push(task);
+        result.uncompleted.push(finalTask);
       }
     }
   }
