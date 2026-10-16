@@ -9,7 +9,11 @@ export type {
   DailyQuote,
   ReminderSettings,
   DayDetail,
+  RecurringDayStatus,
+  RecurringRecord,
+  RecurringHistory,
 } from "../../shared/contracts";
+import type { RecurringHistory } from "../../shared/contracts";
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -67,4 +71,21 @@ export function dateLabel(date: string, weekday = false): string {
     day: "numeric",
     ...(weekday ? { weekday: "long" as const } : {}),
   }).format(new Date(`${date}T12:00:00Z`));
+}
+
+export async function getRecurringRecords(
+  id: string,
+): Promise<RecurringHistory> {
+  return request<RecurringHistory>(`/api/recurring/${id}/records`);
+}
+
+export async function checkinRecurring(
+  id: string,
+  date: string,
+  done: boolean,
+): Promise<RecurringHistory> {
+  return request<RecurringHistory>(`/api/recurring/${id}/checkin`, {
+    method: "POST",
+    body: jsonBody({ date, done }),
+  });
 }

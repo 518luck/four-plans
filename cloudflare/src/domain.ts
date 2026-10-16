@@ -116,6 +116,7 @@ export function goalFromRow(row: Row): RecurringPlan {
     updatedAt: String(row.updated_at),
     generated: Number(row.generated || 0),
     completed: Number(row.completed || 0),
+    missed: row.missed !== undefined ? Number(row.missed || 0) : undefined,
   };
 }
 export function validateTask(task: Task): void {

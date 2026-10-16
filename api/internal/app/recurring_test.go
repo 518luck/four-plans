@@ -178,3 +178,88 @@ func TestRecurringSurvivesRestartWithMissedRevisions(t *testing.T) {
 		t.Fatal("restart must catch up using persisted revisions without rewriting history")
 	}
 }
+
+func TestRecurringRecordsAndCheckinFlow(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	p := f.recurring(t, "2026-10-13", "2026-10-16")
+
+	// Advance 2 days to 2026-10-15
+	f.advance(2)
+
+	// Fetch recurring list to check missed count
+	recListResp := f.send(t, "GET", "/api/recurring", nil)
+	expect(t, recListResp, 200)
+	plans := decode[[]RecurringPlan](t, recListResp)
+	if len(plans) != 1 {
+		t.Fatalf("expected 1 plan, got %d", len(plans))
+	}
+	// On 10-15, days 13 and 14 are past and undone -> missed = 2
+	if plans[0].Missed != 2 {
+		t.Fatalf("expected 2 missed days, got %d", plans[0].Missed)
+	}
+
+	// Fetch history records
+	recResp := f.send(t, "GET", "/api/recurring/"+p.ID+"/records", nil)
+	expect(t, recResp, 200)
+	history := decode[RecurringHistory](t, recResp)
+	if history.TotalDays != 4 || history.PassedDays != 3 || history.CompletedDays != 0 || history.MissedDays != 2 {
+		t.Fatalf("history mismatch: %+v", history)
+	}
+	if len(history.Records) != 4 {
+		t.Fatalf("expected 4 records, got %d", len(history.Records))
+	}
+	if history.Records[0].Status != "missed" || history.Records[1].Status != "missed" || history.Records[2].Status != "pending" || history.Records[3].Status != "upcoming" {
+		t.Fatalf("record statuses incorrect: %+v", history.Records)
+	}
+
+	// Today checkin (2026-10-15)
+	doneTrue := true
+	chkResp := f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{
+		"date": "2026-10-15",
+		"done": &doneTrue,
+	})
+	expect(t, chkResp, 200)
+	history = decode[RecurringHistory](t, chkResp)
+	if history.CompletedDays != 1 || history.CurrentStreak != 1 || history.LongestStreak != 1 {
+		t.Fatalf("today checkin history mismatch: %+v", history)
+	}
+	if history.Records[2].Status != "completed" {
+		t.Fatalf("today record status should be completed, got %s", history.Records[2].Status)
+	}
+
+	// Retroactive checkin (补卡 2026-10-14)
+	chkResp = f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{
+		"date": "2026-10-14",
+		"done": &doneTrue,
+	})
+	expect(t, chkResp, 200)
+	history = decode[RecurringHistory](t, chkResp)
+	if history.CompletedDays != 2 || history.MissedDays != 1 || history.CurrentStreak != 2 || history.LongestStreak != 2 {
+		t.Fatalf("retroactive checkin history mismatch: %+v", history)
+	}
+	if history.Records[1].Status != "completed" {
+		t.Fatalf("retroactive record status should be completed, got %s", history.Records[1].Status)
+	}
+
+	// Cancel retroactive checkin (取消补卡 2026-10-14)
+	doneFalse := false
+	chkResp = f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{
+		"date": "2026-10-14",
+		"done": &doneFalse,
+	})
+	expect(t, chkResp, 200)
+	history = decode[RecurringHistory](t, chkResp)
+	if history.CompletedDays != 1 || history.MissedDays != 2 || history.CurrentStreak != 1 {
+		t.Fatalf("cancel checkin history mismatch: %+v", history)
+	}
+	if history.Records[1].Status != "missed" {
+		t.Fatalf("record status should revert to missed, got %s", history.Records[1].Status)
+	}
+
+	// Future checkin not allowed
+	expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{
+		"date": "2026-10-16",
+		"done": &doneTrue,
+	}), 400)
+}

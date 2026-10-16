@@ -474,3 +474,56 @@ test("day statistics detail endpoint", async (t) => {
   const badRes = await f.send("GET", "/api/statistics/day?date=bad-date");
   assert.equal(badRes.status, 400);
 });
+
+test("recurring records and checkin punch-in wall flow", async (t) => {
+  const f = await fixture(t);
+  await f.setup();
+
+  const planRes = await f.send("POST", "/api/recurring", {
+    title: "英语打卡计划",
+    start: "2026-10-13",
+    end: "2026-10-16",
+  });
+  assert.equal(planRes.status, 201);
+  const plan = await planRes.json();
+
+  // Move forward in time so 10-13, 10-14, 10-15 are past, 10-15 is today
+  await f.now("2026-10-15T02:00:00Z");
+
+  // Get initial records: 10-13 and 10-14 missed, 10-15 pending, 10-16 upcoming
+  const recordsRes = await f.send("GET", `/api/recurring/${plan.id}/records`);
+  assert.equal(recordsRes.status, 200);
+  const history = await recordsRes.json();
+  assert.equal(history.planId, plan.id);
+  assert.equal(history.totalDays, 4);
+  assert.equal(history.passedDays, 3);
+  assert.equal(history.completedDays, 0);
+  assert.equal(history.missedDays, 2);
+  assert.equal(history.currentStreak, 0);
+
+  // Retroactive checkin (补卡 2026-10-13)
+  const checkinRes1 = await f.send("POST", `/api/recurring/${plan.id}/checkin`, {
+    date: "2026-10-13",
+    done: true,
+  });
+  assert.equal(checkinRes1.status, 200);
+  const h1 = await checkinRes1.json();
+  assert.equal(h1.completedDays, 1);
+  assert.equal(h1.missedDays, 1);
+
+  // Checkin today (2026-10-15)
+  const checkinRes2 = await f.send("POST", `/api/recurring/${plan.id}/checkin`, {
+    date: "2026-10-15",
+    done: true,
+  });
+  assert.equal(checkinRes2.status, 200);
+  const h2 = await checkinRes2.json();
+  assert.equal(h2.completedDays, 2);
+  assert.equal(h2.currentStreak, 1);
+
+  // Board recurringPlans reflects missed and completed
+  const b = await f.board("2026-10-15");
+  const p = b.recurringPlans.find((item) => item.id === plan.id);
+  assert.equal(p.completed, 2);
+  assert.equal(p.missed, 1);
+});

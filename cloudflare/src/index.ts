@@ -3,6 +3,9 @@ import type {
   RecurringPlan,
   DailyQuote,
   ReminderSettings,
+  RecurringRecord,
+  RecurringHistory,
+  RecurringDayStatus,
 } from "../../shared/contracts";
 import {
   HttpError,
@@ -41,7 +44,7 @@ export interface Env {
   QUOTE_URL?: string;
 }
 type DB = Pick<D1Database, "prepare" | "batch">;
-const goalSelect = `SELECT p.*,(SELECT COUNT(*) FROM tasks WHERE recurring_id=p.id AND deleted_at IS NULL) AS generated,(SELECT COUNT(*) FROM tasks WHERE recurring_id=p.id AND deleted_at IS NULL AND done=1) AS completed FROM recurring_plans p WHERE p.user_id=1`;
+const goalSelect = `SELECT p.*,(SELECT COUNT(*) FROM tasks WHERE recurring_id=p.id AND deleted_at IS NULL) AS generated,(SELECT COUNT(*) FROM tasks WHERE recurring_id=p.id AND deleted_at IS NULL AND done=1) AS completed,(SELECT COUNT(*) FROM tasks WHERE recurring_id=p.id AND deleted_at IS NULL AND done=0 AND scheduled_date < ?) AS missed FROM recurring_plans p WHERE p.user_id=1`;
 const defaultQuotes = [
   "每天向前一点，也是一种坚持。",
   "把今天能做的一步，认真做好。",
@@ -296,9 +299,13 @@ async function readTasks(db: DB): Promise<Task[]> {
       .all<Row>()
   ).results.map(taskFromRow);
 }
-async function goals(db: DB): Promise<RecurringPlan[]> {
+async function goals(db: DB, now?: Date): Promise<RecurringPlan[]> {
+  const today = now ? beijingDate(now) : beijingDate(new Date());
   return (
-    await db.prepare(goalSelect + " ORDER BY p.created_at DESC,p.id").all<Row>()
+    await db
+      .prepare(goalSelect + " ORDER BY p.created_at DESC,p.id")
+      .bind(today)
+      .all<Row>()
   ).results.map(goalFromRow);
 }
 async function generate(db: DB, now: Date): Promise<void> {
@@ -479,7 +486,7 @@ async function goalRoute(
   const today = beijingDate(now),
     stamp = now.toISOString();
   await generate(db, now);
-  if (request.method === "GET" && !id) return json(await goals(db));
+  if (request.method === "GET" && !id) return json(await goals(db, now));
   if (request.method === "POST" && !id) {
     const body = await input(request, ["title", "notes", "start", "end"]);
     const goal: RecurringPlan = {
@@ -495,6 +502,7 @@ async function goalRoute(
       updatedAt: stamp,
       generated: 0,
       completed: 0,
+      missed: 0,
     };
     validateGoal(goal);
     if (goal.start < today) bad("开始日期不能早于今天");
@@ -527,7 +535,7 @@ async function goalRoute(
       version = integer(body.version);
     const row = await db
       .prepare(goalSelect + " AND p.id=?")
-      .bind(id)
+      .bind(today, id)
       .first<Row>();
     if (!row) throw new HttpError(404, "目标不存在", "not_found");
     const goal = goalFromRow(row);
@@ -564,6 +572,225 @@ async function goalRoute(
     return json(goal);
   }
   throw new HttpError(404, "接口不存在", "not_found");
+}
+
+async function getRecurringHistory(
+  db: DB,
+  planId: string,
+  now: Date,
+): Promise<RecurringHistory> {
+  const today = beijingDate(now);
+  await generate(db, now);
+
+  const planRow = await db
+    .prepare("SELECT * FROM recurring_plans WHERE id=? AND user_id=1")
+    .bind(planId)
+    .first<Row>();
+  if (!planRow) throw new HttpError(404, "目标不存在", "not_found");
+
+  const revRows = (
+    await db
+      .prepare(
+        "SELECT effective_date, status, end_date FROM recurring_revisions WHERE plan_id=? ORDER BY effective_date ASC",
+      )
+      .bind(planId)
+      .all<Row>()
+  ).results;
+
+  const taskRows = (
+    await db
+      .prepare(
+        "SELECT id, scheduled_date, done, version, completed_at FROM tasks WHERE recurring_id=? AND user_id=1 AND deleted_at IS NULL ORDER BY scheduled_date ASC",
+      )
+      .bind(planId)
+      .all<Row>()
+  ).results;
+
+  const tasksByDate = new Map<
+    string,
+    { id: string; done: boolean; version: number; completedAt?: string }
+  >();
+  for (const t of taskRows) {
+    tasksByDate.set(String(t.scheduled_date), {
+      id: String(t.id),
+      done: Boolean(t.done),
+      version: Number(t.version),
+      completedAt: t.completed_at ? String(t.completed_at) : undefined,
+    });
+  }
+
+  const start = String(planRow.start_date);
+  const end = String(planRow.end_date);
+  const records: RecurringRecord[] = [];
+
+  let cur = start;
+  while (cur <= end) {
+    let revStatus = String(planRow.status);
+    for (const rev of revRows) {
+      if (String(rev.effective_date) <= cur) {
+        revStatus = String(rev.status);
+      }
+    }
+
+    const t = tasksByDate.get(cur);
+    let status: RecurringDayStatus;
+    if (revStatus === "paused" && cur <= today) {
+      status = "paused";
+    } else if (cur > today) {
+      status = "upcoming";
+    } else if (t) {
+      if (t.done) {
+        status = "completed";
+      } else if (cur === today) {
+        status = "pending";
+      } else {
+        status = "missed";
+      }
+    } else {
+      if (cur === today) {
+        status = "pending";
+      } else if (cur < today) {
+        status = "missed";
+      } else {
+        status = "upcoming";
+      }
+    }
+
+    records.push({
+      date: cur,
+      status,
+      done: t ? t.done : false,
+      taskId: t?.id,
+      version: t?.version,
+      completedAt: t?.completedAt,
+    });
+
+    cur = addDays(cur, 1);
+  }
+
+  let completedDays = 0;
+  let missedDays = 0;
+  let passedDays = 0;
+  let longestStreak = 0;
+  let run = 0;
+
+  for (const r of records) {
+    if (r.date <= today) {
+      passedDays++;
+      if (r.status === "completed") {
+        completedDays++;
+        run++;
+        if (run > longestStreak) longestStreak = run;
+      } else if (r.status === "missed") {
+        missedDays++;
+        run = 0;
+      } else if (r.status === "pending") {
+        run = 0;
+      }
+    }
+  }
+
+  let currentStreak = 0;
+  const todayIdx = records.findIndex((r) => r.date === today);
+  if (todayIdx >= 0) {
+    if (records[todayIdx].status === "completed") {
+      for (let i = todayIdx; i >= 0; i--) {
+        if (records[i].status === "completed") currentStreak++;
+        else break;
+      }
+    } else {
+      for (let i = todayIdx - 1; i >= 0; i--) {
+        if (records[i].status === "completed") currentStreak++;
+        else break;
+      }
+    }
+  }
+
+  return {
+    planId,
+    totalDays: records.length,
+    passedDays,
+    completedDays,
+    missedDays,
+    currentStreak,
+    longestStreak,
+    records,
+  };
+}
+
+async function recurringCheckinRoute(
+  request: Request,
+  db: DB,
+  now: Date,
+  planId: string,
+): Promise<Response> {
+  const today = beijingDate(now);
+  const stamp = now.toISOString();
+  const body = await input(request, ["date", "done"]);
+  const targetDate = text(body.date);
+  if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    bad("请指定有效的打卡日期");
+  }
+
+  const planRow = await db
+    .prepare("SELECT * FROM recurring_plans WHERE id=? AND user_id=1")
+    .bind(planId)
+    .first<Row>();
+  if (!planRow) throw new HttpError(404, "目标不存在", "not_found");
+
+  const start = String(planRow.start_date);
+  const end = String(planRow.end_date);
+  if (targetDate < start || targetDate > end) {
+    bad("打卡日期超出目标计划周期");
+  }
+  if (targetDate > today) {
+    bad("不能为未来日期打卡");
+  }
+
+  const existing = await db
+    .prepare(
+      "SELECT * FROM tasks WHERE recurring_id=? AND scheduled_date=? AND user_id=1 AND deleted_at IS NULL",
+    )
+    .bind(planId, targetDate)
+    .first<Row>();
+
+  let nextDone: boolean;
+  if (body.done !== undefined) {
+    nextDone = boolean(body.done);
+  } else {
+    nextDone = existing ? !existing.done : true;
+  }
+
+  if (existing) {
+    const compAt = nextDone ? stamp : null;
+    await db
+      .prepare(
+        "UPDATE tasks SET done=?, completed_at=?, updated_at=?, version=version+1 WHERE id=? AND user_id=1",
+      )
+      .bind(nextDone ? 1 : 0, compAt, stamp, existing.id)
+      .run();
+  } else {
+    const taskId = randomToken(12);
+    await db
+      .prepare(
+        "INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,done,completed_at,created_at,updated_at,recurring_id,version) VALUES(?,1,?,?, 'today', ?, ?, ?, ?, ?, ?, 1)",
+      )
+      .bind(
+        taskId,
+        String(planRow.title),
+        String(planRow.notes || ""),
+        targetDate,
+        nextDone ? 1 : 0,
+        nextDone ? stamp : null,
+        stamp,
+        stamp,
+        planId,
+      )
+      .run();
+  }
+
+  const history = await getRecurringHistory(db, planId, now);
+  return json(history);
 }
 async function quote(db: DB, env: Env, now: Date): Promise<Response> {
   const date = beijingDate(now);
@@ -775,6 +1002,18 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (path === "/api/recurring") return goalRoute(request, db, now);
   const goalMatch = path.match(/^\/api\/recurring\/([a-f0-9]{24})$/);
   if (goalMatch) return goalRoute(request, db, now, goalMatch[1]);
+  const recordsMatch = path.match(
+    /^\/api\/recurring\/([a-f0-9]{24})\/records$/,
+  );
+  if (recordsMatch && request.method === "GET") {
+    return json(await getRecurringHistory(db, recordsMatch[1], now));
+  }
+  const checkinMatch = path.match(
+    /^\/api\/recurring\/([a-f0-9]{24})\/checkin$/,
+  );
+  if (checkinMatch && request.method === "POST") {
+    return recurringCheckinRoute(request, db, now, checkinMatch[1]);
+  }
   if (path === "/api/quote" && request.method === "GET")
     return quote(db, env, now);
   if (path === "/api/resources" && request.method === "GET") {
@@ -909,7 +1148,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       buckets,
       carryovers,
       trash,
-      recurringPlans: await goals(db),
+      recurringPlans: await goals(db, now),
       statistics: statistics(tasks, now),
       reminderSettings: await loadReminderSettings(db),
       syncedAt: stamp,
@@ -997,7 +1236,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       formatVersion: 2,
       exportedAt: stamp,
       tasks: (await readTasks(db)).filter((t) => !t.deletedAt),
-      recurringPlans: await goals(db),
+      recurringPlans: await goals(db, now),
     });
     response.headers.set(
       "Content-Disposition",

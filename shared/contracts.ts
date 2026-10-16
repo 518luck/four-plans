@@ -75,8 +75,35 @@ export interface RecurringPlan {
   version: number;
   generated: number;
   completed: number;
+  missed?: number;
   createdAt: string;
   updatedAt: string;
+}
+export type RecurringDayStatus =
+  | "completed"
+  | "missed"
+  | "pending"
+  | "upcoming"
+  | "paused";
+
+export interface RecurringRecord {
+  date: string;
+  status: RecurringDayStatus;
+  done: boolean;
+  taskId?: string;
+  version?: number;
+  completedAt?: string;
+}
+
+export interface RecurringHistory {
+  planId: string;
+  totalDays: number;
+  passedDays: number;
+  completedDays: number;
+  missedDays: number;
+  currentStreak: number;
+  longestStreak: number;
+  records: RecurringRecord[];
 }
 export interface DailyQuote {
   date: string;

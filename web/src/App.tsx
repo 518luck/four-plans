@@ -1645,6 +1645,7 @@ export default function App() {
             busy={busy}
             loading={sync === "loading"}
             onBack={() => setView("board")}
+            onReloadBoard={() => void loadBoard()}
             onSave={(plan, input) =>
               mutate(
                 () =>

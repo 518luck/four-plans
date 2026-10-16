@@ -1,4 +1,10 @@
-import { useState, type FormEvent } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  type FormEvent,
+  type MouseEvent,
+} from "react";
 import { motion, useReducedMotion } from "motion/react";
 import {
   Plus,
@@ -8,8 +14,25 @@ import {
   Play,
   Square,
   ChevronLeft,
+  Check,
+  Flame,
+  Trophy,
+  Sparkles,
+  AlertCircle,
+  LoaderCircle,
+  CalendarCheck,
 } from "lucide-react";
-import { addDays, today, type RecurringPlan } from "./api";
+import {
+  addDays,
+  today,
+  dateLabel,
+  getRecurringRecords,
+  checkinRecurring,
+  type RecurringPlan,
+  type RecurringHistory,
+  type RecurringRecord,
+  type RecurringDayStatus,
+} from "./api";
 import "./recurring.css";
 
 export default function RecurringPanel({
@@ -18,6 +41,7 @@ export default function RecurringPanel({
   loading,
   onSave,
   onBack,
+  onReloadBoard,
 }: {
   plans?: RecurringPlan[];
   busy: boolean;
@@ -27,13 +51,22 @@ export default function RecurringPanel({
     input: Record<string, unknown>,
   ) => Promise<boolean>;
   onBack: () => void;
+  onReloadBoard?: () => void;
 }) {
   const reduced = useReducedMotion();
   const [editing, setEditing] = useState<RecurringPlan | null | undefined>(
     undefined,
   );
   const [stopping, setStopping] = useState<string | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+
   const date = today();
+
+  // Keep selected plan valid
+  const effectiveSelectedPlan =
+    plans?.find((p) => p.id === selectedPlanId) ||
+    (plans && plans.length > 0 ? plans[0] : null);
+
   const statusLabel = (plan: RecurringPlan) => {
     if (plan.end < date) return "已到期";
     if (plan.status === "stopped")
@@ -44,6 +77,7 @@ export default function RecurringPanel({
     if (plan.effectiveDate > date) return "明日起更新";
     return "进行中";
   };
+
   return (
     <motion.section
       className="recurring-page"
@@ -54,6 +88,7 @@ export default function RecurringPanel({
         <ChevronLeft size={14} />
         返回计划
       </button>
+
       <header className="recurring-heading">
         <div>
           <div className="eyebrow">ONE GOAL, EVERY DAY</div>
@@ -68,6 +103,7 @@ export default function RecurringPanel({
           新建目标
         </button>
       </header>
+
       {editing !== undefined && (
         <RecurringEditor
           key={editing?.id || "new"}
@@ -79,6 +115,7 @@ export default function RecurringPanel({
           }}
         />
       )}
+
       {!plans ? (
         <div className="recurring-empty">
           {loading ? "正在读取目标…" : "暂时无法读取目标，请返回计划后重试。"}
@@ -92,118 +129,607 @@ export default function RecurringPanel({
           </button>
         </div>
       ) : (
-        <div className="recurring-list">
-          {plans.map((plan) => {
-            const totalDays =
-              Math.round(
-                (Date.parse(plan.end) - Date.parse(plan.start)) / 86400000,
-              ) + 1;
-            const progress = Math.min(100, (plan.completed * 100) / totalDays);
-            return (
-              <article className="recurring-card" key={plan.id}>
-                <header>
-                  <span className="recurring-symbol">
-                    <Repeat2 size={20} />
-                  </span>
-                  <div>
-                    <h2>{plan.title}</h2>
-                    <span className="recurring-status">
-                      {statusLabel(plan)}
-                    </span>
-                  </div>
-                </header>
-                {plan.notes && <p className="recurring-notes">{plan.notes}</p>}
-                <div className="recurring-dates">
-                  {plan.start.replaceAll("-", "/")} —{" "}
-                  {plan.end.replaceAll("-", "/")}
-                  <span>{totalDays} 天</span>
-                </div>
-                <div className="recurring-progress">
-                  <span>
-                    已完成 {plan.completed} / {totalDays} 天
-                  </span>
-                  <span>{Math.round(progress)}%</span>
-                </div>
-                <div
-                  className="recurring-progress-track"
-                  role="progressbar"
-                  aria-label="目标进度"
-                  aria-valuemin={0}
-                  aria-valuemax={totalDays}
-                  aria-valuenow={Math.min(plan.completed, totalDays)}
-                  aria-valuetext={`已完成 ${plan.completed} / ${totalDays} 天`}
-                >
-                  <i
-                    style={{
-                      width: `${progress}%`,
+        <div className="recurring-layout-container">
+          {/* 上层：持久任务有哪些 */}
+          <section className="recurring-layer-top" aria-label="持久任务有哪些">
+            <div className="recurring-layer-header">
+              <div className="layer-title-group">
+                <h2>持久任务列表</h2>
+                <span className="layer-subtitle">
+                  共 {plans.length} 个目标 · 点击卡片切换下方打卡墙
+                </span>
+              </div>
+            </div>
+
+            <div className="recurring-list">
+              {plans.map((plan) => {
+                const isSelected = effectiveSelectedPlan?.id === plan.id;
+                const totalDays =
+                  Math.round(
+                    (Date.parse(plan.end) - Date.parse(plan.start)) / 86400000,
+                  ) + 1;
+                const completed = plan.completed || 0;
+                const missed = plan.missed || 0;
+                const completedPercent = Math.min(
+                  100,
+                  (completed * 100) / totalDays,
+                );
+                const missedPercent = Math.min(
+                  100 - completedPercent,
+                  (missed * 100) / totalDays,
+                );
+
+                return (
+                  <article
+                    className={`recurring-card ${isSelected ? "is-selected" : ""}`}
+                    key={plan.id}
+                    onClick={() => setSelectedPlanId(plan.id)}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isSelected}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedPlanId(plan.id);
+                      }
                     }}
-                  />
-                </div>
-                {plan.status !== "stopped" && (
-                  <footer>
-                    <button disabled={busy} onClick={() => setEditing(plan)}>
-                      <Pencil size={14} />
-                      修改
-                    </button>
-                    {plan.end >= date && (
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          void onSave(plan, {
-                            status:
-                              plan.status === "paused" ? "active" : "paused",
-                          })
-                        }
-                      >
-                        {plan.status === "paused" ? (
-                          <Play size={14} />
-                        ) : (
-                          <Pause size={14} />
-                        )}{" "}
-                        {plan.status === "paused" ? "恢复" : "暂停"}
-                      </button>
-                    )}
-                    <button
-                      disabled={busy}
-                      onClick={() => setStopping(plan.id)}
-                    >
-                      <Square size={13} />
-                      停止
-                    </button>
-                  </footer>
-                )}
-                {stopping === plan.id && (
-                  <div
-                    className="recurring-confirm"
-                    role="group"
-                    aria-label="确认停止目标"
                   >
-                    <p>停止生成任务，保留历史记录？</p>
-                    <button
-                      className="button secondary"
-                      disabled={busy}
-                      onClick={() => setStopping(null)}
+                    <header>
+                      <span className="recurring-symbol">
+                        <Repeat2 size={20} />
+                      </span>
+                      <div className="recurring-card-header-main">
+                        <div className="recurring-card-title-row">
+                          <h2>{plan.title}</h2>
+                          {isSelected && (
+                            <span className="selected-indicator-pill">
+                              <Check size={12} strokeWidth={2.5} />
+                              当前查看
+                            </span>
+                          )}
+                        </div>
+                        <span className="recurring-status">
+                          {statusLabel(plan)}
+                        </span>
+                      </div>
+                    </header>
+
+                    {plan.notes && (
+                      <p className="recurring-notes">{plan.notes}</p>
+                    )}
+
+                    <div className="recurring-dates">
+                      {plan.start.replaceAll("-", "/")} —{" "}
+                      {plan.end.replaceAll("-", "/")}
+                      <span>{totalDays} 天</span>
+                    </div>
+
+                    <div className="recurring-progress-summary">
+                      <div className="recurring-progress-stats">
+                        <span className="stat-completed">
+                          已完成 <strong>{completed}</strong> / {totalDays} 天
+                        </span>
+                        {missed > 0 ? (
+                          <span className="stat-missed">
+                            漏打卡 <strong>{missed}</strong> 天
+                          </span>
+                        ) : (
+                          <span className="stat-all-good">暂无漏卡</span>
+                        )}
+                      </div>
+                      <span className="stat-rate">
+                        {Math.round(completedPercent)}%
+                      </span>
+                    </div>
+
+                    {/* 双段进度条：展示已完成与漏卡对比 */}
+                    <div
+                      className="recurring-progress-track dual"
+                      role="progressbar"
+                      aria-label="目标进度"
+                      aria-valuemin={0}
+                      aria-valuemax={totalDays}
+                      aria-valuenow={Math.min(completed, totalDays)}
+                      aria-valuetext={`已完成 ${completed} 天，漏打卡 ${missed} 天`}
                     >
-                      取消
-                    </button>
-                    <button
-                      className="button primary"
-                      disabled={busy}
-                      onClick={async () => {
-                        if (await onSave(plan, { status: "stopped" }))
-                          setStopping(null);
-                      }}
-                    >
-                      确认停止
-                    </button>
-                  </div>
-                )}
-              </article>
-            );
-          })}
+                      <i
+                        className="progress-completed-bar"
+                        style={{ width: `${completedPercent}%` }}
+                        title={`已完成 ${completed} 天`}
+                      />
+                      <i
+                        className="progress-missed-bar"
+                        style={{ width: `${missedPercent}%` }}
+                        title={`漏打卡 ${missed} 天`}
+                      />
+                    </div>
+
+                    {plan.status !== "stopped" && (
+                      <footer>
+                        <button
+                          disabled={busy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditing(plan);
+                          }}
+                        >
+                          <Pencil size={14} />
+                          修改
+                        </button>
+                        {plan.end >= date && (
+                          <button
+                            disabled={busy}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void onSave(plan, {
+                                status:
+                                  plan.status === "paused"
+                                    ? "active"
+                                    : "paused",
+                              });
+                            }}
+                          >
+                            {plan.status === "paused" ? (
+                              <Play size={14} />
+                            ) : (
+                              <Pause size={14} />
+                            )}{" "}
+                            {plan.status === "paused" ? "恢复" : "暂停"}
+                          </button>
+                        )}
+                        <button
+                          disabled={busy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setStopping(plan.id);
+                          }}
+                        >
+                          <Square size={13} />
+                          停止
+                        </button>
+                      </footer>
+                    )}
+
+                    {stopping === plan.id && (
+                      <div
+                        className="recurring-confirm"
+                        role="group"
+                        aria-label="确认停止目标"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <p>停止生成任务，保留历史记录？</p>
+                        <button
+                          className="button secondary"
+                          disabled={busy}
+                          onClick={() => setStopping(null)}
+                        >
+                          取消
+                        </button>
+                        <button
+                          className="button primary"
+                          disabled={busy}
+                          onClick={async () => {
+                            if (await onSave(plan, { status: "stopped" }))
+                              setStopping(null);
+                          }}
+                        >
+                          确认停止
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* 下层：选中任务的打卡墙 / 活跃墙 */}
+          {effectiveSelectedPlan && (
+            <PunchInWallSection
+              key={`${effectiveSelectedPlan.id}-${effectiveSelectedPlan.version}`}
+              plan={effectiveSelectedPlan}
+              onReloadBoard={onReloadBoard}
+            />
+          )}
         </div>
       )}
     </motion.section>
+  );
+}
+
+function PunchInWallSection({
+  plan,
+  onReloadBoard,
+}: {
+  plan: RecurringPlan;
+  onReloadBoard?: () => void;
+}) {
+  const [history, setHistory] = useState<RecurringHistory | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [checkingDate, setCheckingDate] = useState<string | null>(null);
+  const [tooltip, setTooltip] = useState<{
+    record: RecurringRecord;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const todayDate = today();
+
+  const loadHistory = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await getRecurringRecords(plan.id);
+      setHistory(res);
+    } catch {
+      // Keep previous or null
+    } finally {
+      setLoading(false);
+    }
+  }, [plan.id]);
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+
+  const handleCheckin = async (record: RecurringRecord) => {
+    if (record.status === "upcoming" || record.status === "paused") {
+      return;
+    }
+    const nextDone = record.status !== "completed";
+    setCheckingDate(record.date);
+    try {
+      const updated = await checkinRecurring(plan.id, record.date, nextDone);
+      setHistory(updated);
+      onReloadBoard?.();
+    } catch {
+      // Error handled by request
+    } finally {
+      setCheckingDate(null);
+    }
+  };
+
+  const todayRecord = history?.records.find((r) => r.date === todayDate);
+  const isTodayInRange = todayDate >= plan.start && todayDate <= plan.end;
+
+  // Build calendar matrix (Monday..Sunday rows, weeks columns)
+  const calendarWeeks = (() => {
+    if (!history || !history.records.length) return [];
+    const records = history.records;
+    const startUtc = new Date(`${records[0].date}T12:00:00Z`);
+    // 0 is Mon, 6 is Sun
+    const startDayOfWeek = (startUtc.getUTCDay() + 6) % 7;
+
+    const allDays: (RecurringRecord | null)[] = [
+      ...Array<null>(startDayOfWeek).fill(null),
+      ...records,
+    ];
+    const trailingCount = (7 - (allDays.length % 7)) % 7;
+    for (let i = 0; i < trailingCount; i++) {
+      allDays.push(null);
+    }
+
+    const weeks: {
+      weekIndex: number;
+      monthLabel?: string;
+      days: (RecurringRecord | null)[];
+    }[] = [];
+
+    let lastMonth = -1;
+    for (let i = 0; i < allDays.length; i += 7) {
+      const weekDays = allDays.slice(i, i + 7);
+      let monthLabel: string | undefined = undefined;
+      for (const d of weekDays) {
+        if (d) {
+          const m = parseInt(d.date.slice(5, 7), 10);
+          if (m !== lastMonth) {
+            lastMonth = m;
+            monthLabel = `${m}月`;
+            break;
+          }
+        }
+      }
+      weeks.push({
+        weekIndex: i / 7,
+        monthLabel,
+        days: weekDays,
+      });
+    }
+    return weeks;
+  })();
+
+  const completionRate = history
+    ? history.passedDays > 0
+      ? Math.round((history.completedDays / history.passedDays) * 100)
+      : 0
+    : 0;
+
+  const handleCellMouseEnter = (
+    e: MouseEvent<HTMLButtonElement>,
+    record: RecurringRecord,
+  ) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTooltip({
+      record,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+    });
+  };
+
+  const handleCellMouseLeave = () => {
+    setTooltip(null);
+  };
+
+  const statusName = (status: RecurringDayStatus) => {
+    switch (status) {
+      case "completed":
+        return "已打卡";
+      case "missed":
+        return "漏打卡";
+      case "pending":
+        return "今日待打卡";
+      case "upcoming":
+        return "未开始";
+      case "paused":
+        return "暂停期";
+    }
+  };
+
+  const actionHint = (record: RecurringRecord) => {
+    if (record.status === "missed") return "点击直接补卡";
+    if (record.status === "completed") return "点击取消打卡";
+    if (record.status === "pending") return "点击完成今日打卡";
+    if (record.status === "upcoming") return "未来日期，暂不可打卡";
+    if (record.status === "paused") return "该日期处于暂停状态";
+    return "";
+  };
+
+  return (
+    <section className="recurring-layer-bottom" aria-label="打卡墙">
+      <div className="punch-wall-card">
+        {/* 打卡墙头部 */}
+        <header className="punch-wall-header">
+          <div className="punch-wall-title-area">
+            <span className="punch-wall-badge">
+              <CalendarCheck size={14} />
+              打卡活跃墙
+            </span>
+            <div className="punch-wall-title-row">
+              <h3>{plan.title}</h3>
+              <span className="punch-wall-date-range">
+                {plan.start.replaceAll("-", "/")} —{" "}
+                {plan.end.replaceAll("-", "/")}
+                {history && ` · 共 ${history.totalDays} 天`}
+              </span>
+            </div>
+          </div>
+
+          {/* 今日快速打卡按钮 */}
+          {isTodayInRange && plan.status !== "stopped" && todayRecord && (
+            <div className="punch-wall-actions">
+              <button
+                type="button"
+                className={`button ${todayRecord.status === "completed" ? "secondary" : "primary"} today-fast-checkin-btn`}
+                disabled={checkingDate === todayDate}
+                onClick={() => void handleCheckin(todayRecord)}
+              >
+                {checkingDate === todayDate ? (
+                  <>
+                    <LoaderCircle size={15} className="spin" />
+                    更新中…
+                  </>
+                ) : todayRecord.status === "completed" ? (
+                  <>
+                    <Check size={15} />
+                    今日已打卡
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={15} />
+                    今日打卡
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </header>
+
+        {loading && !history ? (
+          <div className="punch-wall-loading">
+            <LoaderCircle size={22} className="spin" />
+            <span>正在加载打卡记录…</span>
+          </div>
+        ) : history ? (
+          <>
+            {/* 指标统计栏 */}
+            <div className="punch-wall-metrics">
+              <div className="metric-box">
+                <span className="metric-value">{completionRate}%</span>
+                <span className="metric-label">达成率</span>
+                <span className="metric-sub">
+                  已过 {history.passedDays} / {history.totalDays} 天
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">{history.completedDays}</span>
+                <span className="metric-label">已打卡天数</span>
+                <span className="metric-sub">
+                  剩余 {Math.max(0, history.totalDays - history.completedDays)}{" "}
+                  天
+                </span>
+              </div>
+              <div
+                className={`metric-box ${history.missedDays > 0 ? "has-missed" : ""}`}
+              >
+                <span className="metric-value">{history.missedDays}</span>
+                <span className="metric-label">漏打卡天数</span>
+                <span className="metric-sub">
+                  {history.missedDays > 0 ? "点击格子可随时补卡" : "全勤无遗漏"}
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">
+                  {history.currentStreak}
+                  <Flame size={15} className="metric-icon streak-flame" />
+                </span>
+                <span className="metric-label">当前连续</span>
+                <span className="metric-sub">
+                  {history.currentStreak > 0
+                    ? "保持每日好势头"
+                    : "今日打卡重启连续"}
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">
+                  {history.longestStreak}
+                  <Trophy size={14} className="metric-icon streak-trophy" />
+                </span>
+                <span className="metric-label">最长连续</span>
+                <span className="metric-sub">历史最高纪录</span>
+              </div>
+            </div>
+
+            {/* 打卡热力日历网格 */}
+            <div className="punch-matrix-scroller">
+              <div className="punch-matrix-container">
+                {/* 星期标签列 */}
+                <div className="weekday-labels">
+                  <span className="weekday-month-spacer" />
+                  <span>一</span>
+                  <span>二</span>
+                  <span>三</span>
+                  <span>四</span>
+                  <span>五</span>
+                  <span>六</span>
+                  <span>日</span>
+                </div>
+
+                {/* 周列网格 */}
+                <div className="weeks-track">
+                  {/* 月份标头 */}
+                  <div className="months-header-row">
+                    {calendarWeeks.map((week) => (
+                      <div className="month-label-slot" key={week.weekIndex}>
+                        {week.monthLabel && (
+                          <span className="month-text">{week.monthLabel}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 格子主体 */}
+                  <div className="weeks-columns-grid">
+                    {calendarWeeks.map((week) => (
+                      <div className="week-col" key={week.weekIndex}>
+                        {week.days.map((day, dayIndex) => {
+                          if (!day) {
+                            return (
+                              <div
+                                key={`empty-${dayIndex}`}
+                                className="punch-cell empty"
+                                aria-hidden="true"
+                              />
+                            );
+                          }
+
+                          const isToday = day.date === todayDate;
+                          const isChecking = checkingDate === day.date;
+                          const isClickable =
+                            day.status === "completed" ||
+                            day.status === "missed" ||
+                            day.status === "pending";
+
+                          return (
+                            <button
+                              key={day.date}
+                              type="button"
+                              className={`punch-cell ${day.status} ${isToday ? "is-today" : ""}`}
+                              disabled={!isClickable || isChecking}
+                              onClick={() => void handleCheckin(day)}
+                              onMouseEnter={(e) => handleCellMouseEnter(e, day)}
+                              onMouseLeave={handleCellMouseLeave}
+                              aria-label={`${day.date} ${statusName(day.status)}`}
+                            >
+                              {isChecking ? (
+                                <LoaderCircle size={10} className="spin" />
+                              ) : day.status === "completed" ? (
+                                <Check size={11} strokeWidth={3} />
+                              ) : day.status === "missed" ? (
+                                <span className="missed-mark" />
+                              ) : isToday ? (
+                                <span className="today-dot" />
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 浮动提示框 */}
+            {tooltip && (
+              <div
+                className="punch-tooltip"
+                style={{
+                  left: tooltip.x,
+                  top: tooltip.y,
+                }}
+              >
+                <div className="tooltip-date">
+                  {dateLabel(tooltip.record.date, true)}
+                </div>
+                <div className="tooltip-status-row">
+                  <span className={`status-pill ${tooltip.record.status}`}>
+                    {statusName(tooltip.record.status)}
+                  </span>
+                  <span className="action-hint">
+                    {actionHint(tooltip.record)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* 图例与操作提示 */}
+            <footer className="punch-wall-footer">
+              <div className="punch-legend">
+                <span className="legend-item">
+                  <i className="punch-cell completed" />
+                  已打卡
+                </span>
+                <span className="legend-item">
+                  <i className="punch-cell missed" />
+                  漏打卡（可补卡）
+                </span>
+                <span className="legend-item">
+                  <i className="punch-cell pending is-today" />
+                  今日待打卡
+                </span>
+                <span className="legend-item">
+                  <i className="punch-cell upcoming" />
+                  未开始
+                </span>
+                {history.records.some((r) => r.status === "paused") && (
+                  <span className="legend-item">
+                    <i className="punch-cell paused" />
+                    暂停中
+                  </span>
+                )}
+              </div>
+
+              <div className="punch-tip">
+                <AlertCircle size={13} />
+                <span>
+                  提示：点击任意<strong>漏打卡</strong>日期可立即补卡；点击
+                  <strong>已打卡</strong>日期可取消。
+                </span>
+              </div>
+            </footer>
+          </>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
