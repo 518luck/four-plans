@@ -1,13 +1,15 @@
 .recurring-page {
-  max-width: 1120px;
+  max-width: 1260px;
   margin: 30px auto;
+  padding: 0 20px;
+  box-sizing: border-box;
 }
 .recurring-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 32px 0;
+  margin: 32px 0 24px;
 }
 .recurring-heading h1 {
   font-size: 28px;
@@ -18,23 +20,29 @@
   align-items: center;
   gap: 7px;
 }
+
+/* 基础布局容器 */
 .recurring-layout-container {
   display: flex;
   flex-direction: column;
   gap: 32px;
 }
+
+/* 图层头部与视图切换控制器 */
 .recurring-layer-top {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 .recurring-layer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 .layer-title-group h2 {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   margin: 0;
 }
@@ -44,11 +52,172 @@
   display: inline-block;
   margin-top: 4px;
 }
-.recurring-list {
+
+.recurring-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.track-scroll-arrows {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.track-arrow-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.track-arrow-btn:hover {
+  background: var(--surface-muted);
+  color: var(--foreground);
+  border-color: var(--secondary);
+}
+
+.recurring-view-switcher {
+  display: inline-flex;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  padding: 2px;
+  border-radius: 8px;
+  gap: 2px;
+}
+.recurring-view-switcher .view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.recurring-view-switcher .view-btn:hover {
+  color: var(--foreground);
+}
+.recurring-view-switcher .view-btn.is-active {
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+}
+
+/* =======================================================
+   方案 A：左右双栏布局 (mode-split)
+   ======================================================= */
+.recurring-layout-container.mode-split {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.recurring-layout-container.mode-split .recurring-layer-top {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.recurring-layout-container.mode-split .recurring-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+.recurring-layout-container.mode-split .recurring-layer-bottom {
+  position: sticky;
+  top: 18px;
+}
+.recurring-layout-container.mode-split .recurring-card {
+  padding: 15px 17px;
+}
+.recurring-layout-container.mode-split .recurring-notes {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+/* =======================================================
+   方案 B：上下横向跑道布局 (mode-track)
+   ======================================================= */
+.recurring-layout-container.mode-track {
+  display: flex;
+  flex-direction: column;
   gap: 20px;
 }
+.recurring-layout-container.mode-track .recurring-layer-top {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.recurring-layout-container.mode-track .recurring-list {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  gap: 14px;
+  padding: 4px 2px 10px;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
+  overscroll-behavior-x: contain;
+}
+.recurring-layout-container.mode-track .recurring-card {
+  flex: 0 0 276px;
+  width: 276px;
+  max-width: 276px;
+  padding: 15px 17px;
+  box-sizing: border-box;
+}
+.recurring-layout-container.mode-track .recurring-card h2 {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recurring-layout-container.mode-track .recurring-notes {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+/* 兼容断点：屏幕不足 1024px 时优雅降级 */
+@media (max-width: 1024px) {
+  .recurring-layout-container.mode-split {
+    grid-template-columns: 1fr;
+  }
+  .recurring-layout-container.mode-split .recurring-layer-bottom {
+    position: static;
+  }
+  .recurring-layout-container.mode-split .recurring-list {
+    max-height: none;
+    overflow-y: visible;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
 .recurring-editor,
 .recurring-empty {
   background: var(--surface);
