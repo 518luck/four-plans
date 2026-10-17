@@ -181,8 +181,6 @@
   max-height: calc(100vh - 180px);
   overflow-y: auto;
   padding-right: 6px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar) transparent;
 }
 .recurring-layout-container.mode-split .recurring-layer-bottom {
   position: sticky;
@@ -220,8 +218,6 @@
   gap: 14px;
   padding: 4px 2px 10px;
   scroll-behavior: smooth;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar) transparent;
   overscroll-behavior: contain;
   overscroll-behavior-y: contain;
   overscroll-behavior-x: contain;
@@ -738,8 +734,53 @@
 .punch-wall-card .activity-scroller {
   overflow-x: auto;
   padding: 8px 4px 16px;
+}
+
+/* =======================================================
+   自适应自动隐藏滚动条：平常隐形，鼠标悬停或滑动交互时平滑淡入显示
+   ======================================================= */
+.recurring-list,
+.punch-wall-card .activity-scroller {
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.25s ease;
+}
+
+.recurring-list:hover,
+.recurring-list.is-scrolling,
+.punch-wall-card .activity-scroller:hover,
+.punch-wall-card .activity-scroller.is-scrolling {
   scrollbar-color: var(--scrollbar) transparent;
+}
+
+.recurring-list::-webkit-scrollbar,
+.punch-wall-card .activity-scroller::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.recurring-list::-webkit-scrollbar-track,
+.punch-wall-card .activity-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.recurring-list::-webkit-scrollbar-thumb,
+.punch-wall-card .activity-scroller::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 999px;
+  transition: background-color 0.25s ease;
+}
+
+.recurring-list:hover::-webkit-scrollbar-thumb,
+.recurring-list.is-scrolling::-webkit-scrollbar-thumb,
+.punch-wall-card .activity-scroller:hover::-webkit-scrollbar-thumb,
+.punch-wall-card .activity-scroller.is-scrolling::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar);
+}
+
+.recurring-list::-webkit-scrollbar-thumb:hover,
+.punch-wall-card .activity-scroller::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
 }
 
 .punch-wall-card .activity-calendar {

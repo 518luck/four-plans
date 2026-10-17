@@ -97,6 +97,28 @@ export default function RecurringPanel({
     };
   }, [viewMode, plans]);
 
+  // 滚动时自动添加 is-scrolling 类，滑动停止 900ms 后自动移除并平滑淡出，实现滑动时显示、平常隐形的滚动条
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+
+    let timer: number | undefined;
+    const onScroll = () => {
+      el.classList.add("is-scrolling");
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        el.classList.remove("is-scrolling");
+      }, 900);
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (timer) window.clearTimeout(timer);
+      el.classList.remove("is-scrolling");
+    };
+  }, [viewMode, plans]);
+
   const handleScrollTrack = (direction: "left" | "right") => {
     if (!listRef.current) return;
     const offset = direction === "left" ? -280 : 280;
@@ -548,6 +570,30 @@ function PunchInWallSection({
   const todayDate = today();
   const isPlanEnded = plan.end < todayDate || plan.status === "stopped";
 
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  // 滚动时自动添加 is-scrolling 类，滑动停止 900ms 后自动移除并平滑淡出
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+
+    let timer: number | undefined;
+    const onScroll = () => {
+      el.classList.add("is-scrolling");
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        el.classList.remove("is-scrolling");
+      }, 900);
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (timer) window.clearTimeout(timer);
+      el.classList.remove("is-scrolling");
+    };
+  }, []);
+
   // 若当前 state 属于当前 plan，或者缓存中有当前 plan，立即使用；避免任何消失与抖动
   const history =
     (historyState?.planId === plan.id ? historyState : null) ??
@@ -794,7 +840,7 @@ function PunchInWallSection({
             </div>
 
             {/* 打卡热力日历网格 */}
-            <div className="activity-scroller">
+            <div ref={scrollerRef} className="activity-scroller">
               <div
                 className="activity-calendar"
                 style={
