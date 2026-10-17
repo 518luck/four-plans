@@ -54,9 +54,10 @@ function WaveField3D() {
     if (!mount) return;
 
     let disposed = false;
-    let animId: number;
+    let animId = 0;
+    let disposeScene: (() => void) | undefined;
 
-    void import("three").then((THREE) => {
+    const loadingScene = import("three").then((THREE) => {
       if (disposed || !mount) return;
 
       const width = mount.clientWidth || 1000;
@@ -77,6 +78,10 @@ function WaveField3D() {
         alpha: true,
         antialias: true,
       });
+      disposeScene = () => {
+        renderer.dispose();
+        renderer.forceContextLoss();
+      };
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(width, height);
       mount.appendChild(renderer.domElement);
@@ -283,8 +288,6 @@ function WaveField3D() {
         animId = requestAnimationFrame(animate);
       };
 
-      animate();
-
       const onResize = () => {
         if (!mount) return;
         const w = mount.clientWidth;
@@ -300,9 +303,7 @@ function WaveField3D() {
 
       window.addEventListener("resize", onResize);
 
-      return () => {
-        disposed = true;
-        cancelAnimationFrame(animId);
+      disposeScene = () => {
         window.removeEventListener("resize", onResize);
         if (parentCard) {
           parentCard.removeEventListener(
@@ -320,14 +321,24 @@ function WaveField3D() {
         lineMaterial.dispose();
         texture.dispose();
         renderer.dispose();
-        mount.innerHTML = "";
+        renderer.forceContextLoss();
       };
+      animate();
+    });
+    void loadingScene.catch(() => {
+      // Keep the static background if the optional WebGL scene is unavailable.
+      disposed = true;
+      cancelAnimationFrame(animId);
+      disposeScene?.();
+      disposeScene = undefined;
+      mount.replaceChildren();
     });
 
     return () => {
       disposed = true;
       cancelAnimationFrame(animId);
-      if (mount) mount.innerHTML = "";
+      disposeScene?.();
+      mount.replaceChildren();
     };
   }, []);
 

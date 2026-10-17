@@ -436,6 +436,7 @@ function StatisticsContent({
   const [dayLoading, setDayLoading] = useState(false);
   const [dayError, setDayError] = useState("");
   const dayCache = useRef<Map<string, DayDetail>>(new Map());
+  const cachedStatistics = useRef(statistics);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -449,7 +450,13 @@ function StatisticsContent({
 
   useEffect(() => {
     if (!selectedDate) return;
-    if (dayCache.current.has(selectedDate) && reloadToken === 0) {
+    // Each authoritative board refresh can include task edits that do not alter
+    // completion counts, so invalidate details even when the totals match.
+    if (cachedStatistics.current !== statistics) {
+      dayCache.current.clear();
+      cachedStatistics.current = statistics;
+    }
+    if (dayCache.current.has(selectedDate)) {
       setDayDetail(dayCache.current.get(selectedDate)!);
       setDayLoading(false);
       setDayError("");
@@ -479,7 +486,7 @@ function StatisticsContent({
       active = false;
       controller.abort();
     };
-  }, [selectedDate, reloadToken]);
+  }, [selectedDate, reloadToken, statistics]);
 
   useEffect(() => {
     if (mode === "daily") {

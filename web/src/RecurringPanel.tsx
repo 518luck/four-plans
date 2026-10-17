@@ -5,8 +5,7 @@ import {
   useMemo,
   useRef,
   type FormEvent,
-  type MouseEvent,
-  type WheelEvent,
+  type KeyboardEvent,
   type CSSProperties,
 } from "react";
 import { motion, useReducedMotion } from "motion/react";
@@ -309,6 +308,7 @@ export default function RecurringPanel({
                     tabIndex={0}
                     aria-pressed={isSelected}
                     onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         setSelectedPlanId(plan.id);
@@ -467,6 +467,7 @@ export default function RecurringPanel({
           {/* 下层：选中任务的打卡墙 / 活跃墙 */}
           {effectiveSelectedPlan && (
             <PunchInWallSection
+              key={effectiveSelectedPlan.id}
               plan={effectiveSelectedPlan}
               onReloadBoard={onReloadBoard}
             />
@@ -511,6 +512,12 @@ function PunchInWallSection({
   );
   const [isFetching, setIsFetching] = useState(false);
   const [checkingDate, setCheckingDate] = useState<string | null>(null);
+  const [activeDate, setActiveDate] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const historyRequest = useRef(0);
+  const checking = useRef(false);
+  const cells = useRef(new Map<string, HTMLButtonElement>());
   const [tooltip, setTooltip] = useState<{
     record: RecurringRecord;
     x: number;
@@ -542,7 +549,7 @@ function PunchInWallSection({
       if (timer) window.clearTimeout(timer);
       el.classList.remove("is-scrolling");
     };
-  }, []);
+  }, [historyState?.planId]);
 
   // 若当前 state 属于当前 plan，或者缓存中有当前 plan，立即使用；避免任何消失与抖动
   const history =
@@ -557,7 +564,7 @@ function PunchInWallSection({
 
   useEffect(() => {
     setTooltip(null);
-    setCheckingDate(null);
+    setError("");
 
     const cached = recurringRecordsCache.get(plan.id);
     if (cached) {
@@ -567,29 +574,42 @@ function PunchInWallSection({
     }
 
     let active = true;
+    const requestId = ++historyRequest.current;
     setIsFetching(true);
     void getRecurringRecords(plan.id)
       .then((res) => {
-        if (!active) return;
+        if (!active || requestId !== historyRequest.current) return;
         recurringRecordsCache.set(plan.id, res);
         setHistoryState(res);
       })
-      .catch(() => {
-        // 出错保留已有展示
+      .catch((err) => {
+        if (active && requestId === historyRequest.current)
+          setError(err instanceof Error ? err.message : "读取打卡记录失败");
       })
       .finally(() => {
-        if (active) setIsFetching(false);
+        if (active && requestId === historyRequest.current)
+          setIsFetching(false);
       });
 
     return () => {
       active = false;
     };
-  }, [plan.id, plan.version]);
+    // A new plan object comes from an authoritative board refresh, including
+    // changes from another window that leave the plan's own version unchanged.
+  }, [plan, todayDate, retry]);
 
   const handleCheckin = async (record: RecurringRecord) => {
-    if (record.status === "upcoming" || record.status === "paused") {
+    if (
+      checking.current ||
+      record.status === "upcoming" ||
+      record.status === "paused"
+    ) {
       return;
     }
+    checking.current = true;
+    ++historyRequest.current;
+    setIsFetching(false);
+    setError("");
     const nextDone = record.status !== "completed";
     setCheckingDate(record.date);
     try {
@@ -597,9 +617,10 @@ function PunchInWallSection({
       recurringRecordsCache.set(plan.id, updated);
       setHistoryState(updated);
       onReloadBoard?.();
-    } catch {
-      // Error handled by request
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "打卡失败，请重试");
     } finally {
+      checking.current = false;
       setCheckingDate(null);
     }
   };
@@ -608,19 +629,28 @@ function PunchInWallSection({
     () => computeWeeksCount(plan.start, plan.end),
     [plan.start, plan.end],
   );
+  const totalPlanDays =
+    Math.round((Date.parse(plan.end) - Date.parse(plan.start)) / 86400000) + 1;
 
   // Build calendar matrix (Monday..Sunday rows, weeks columns)
   const calendarWeeks = (() => {
-    if (!history || !history.records.length) return [];
-    const records = history.records;
-    const startUtc = new Date(`${records[0].date}T12:00:00Z`);
+    if (!history) return [];
+    const records = new Map(
+      history.records.map((record) => [record.date, record]),
+    );
+    const startUtc = new Date(`${plan.start}T12:00:00Z`);
     // 0 is Mon, 6 is Sun
     const startDayOfWeek = (startUtc.getUTCDay() + 6) % 7;
 
-    const allDays: (RecurringRecord | null)[] = [
-      ...Array<null>(startDayOfWeek).fill(null),
-      ...records,
-    ];
+    // Inactive revision periods may be absent from history. Preserve their
+    // calendar positions rather than shifting subsequent dates to another day.
+    const allDays = Array.from(
+      { length: startDayOfWeek + totalPlanDays },
+      (_, index): RecurringRecord | null =>
+        index < startDayOfWeek
+          ? null
+          : (records.get(addDays(plan.start, index - startDayOfWeek)) ?? null),
+    );
     const trailingCount = (7 - (allDays.length % 7)) % 7;
     for (let i = 0; i < trailingCount; i++) {
       allDays.push(null);
@@ -641,11 +671,20 @@ function PunchInWallSection({
   })();
 
   const months = calendarWeeks.flatMap((week) => {
-    const day =
-      week.days.find((day) => day?.date.endsWith("-01")) ||
-      week.days.find((day) => day?.date === plan.start);
-    return day
-      ? [{ index: week.weekIndex, label: `${Number(day.date.slice(5, 7))}月` }]
+    const offset = (new Date(`${plan.start}T12:00:00Z`).getUTCDay() + 6) % 7;
+    const date = Array.from({ length: 7 }, (_, row) => {
+      const dayOffset = week.weekIndex * 7 + row - offset;
+      return dayOffset < 0 || dayOffset >= totalPlanDays
+        ? ""
+        : addDays(plan.start, dayOffset);
+    }).find(
+      (date) =>
+        date &&
+        date <= plan.end &&
+        (date.endsWith("-01") || date === plan.start),
+    );
+    return date
+      ? [{ index: week.weekIndex, label: `${Number(date.slice(5, 7))}月` }]
       : [];
   });
 
@@ -655,11 +694,11 @@ function PunchInWallSection({
       : 0
     : 0;
 
-  const handleCellMouseEnter = (
-    e: MouseEvent<HTMLButtonElement>,
+  const showCellTooltip = (
+    button: HTMLButtonElement,
     record: RecurringRecord,
   ) => {
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = button.getBoundingClientRect();
     setTooltip({
       record,
       x: rect.left + rect.width / 2,
@@ -669,6 +708,49 @@ function PunchInWallSection({
 
   const handleCellMouseLeave = () => {
     setTooltip(null);
+  };
+
+  const focusDate =
+    history?.records.find((record) => record.date === activeDate)?.date ??
+    history?.records.find((record) => record.date === todayDate)?.date ??
+    history?.records.at(-1)?.date;
+
+  const handleCellKeyboard = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    date: string,
+  ) => {
+    if (!history?.records.length) return;
+    if (event.key === "Escape") {
+      setTooltip(null);
+      return;
+    }
+    const steps: Record<string, number> = {
+      ArrowLeft: -7,
+      ArrowRight: 7,
+      ArrowUp: -1,
+      ArrowDown: 1,
+    };
+    let target: string;
+    if (event.key === "Home") target = history.records[0].date;
+    else if (event.key === "End") target = history.records.at(-1)!.date;
+    else if (event.key in steps) {
+      const step = steps[event.key];
+      const first = history.records[0].date;
+      const last = history.records.at(-1)!.date;
+      target = addDays(date, step);
+      while (target >= first && target <= last && !cells.current.has(target))
+        target = addDays(target, step);
+      if (target < first || target > last) {
+        event.preventDefault();
+        return;
+      }
+    } else return;
+    event.preventDefault();
+    setActiveDate(target);
+    cells.current.get(target)?.focus();
+    cells.current
+      .get(target)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   };
 
   const statusName = (status: RecurringDayStatus) => {
@@ -727,6 +809,18 @@ function PunchInWallSection({
             </div>
           </div>
         </header>
+
+        {history && error && (
+          <div className="punch-wall-loading" role="alert">
+            <p>{error}</p>
+            <button
+              className="button secondary"
+              onClick={() => setRetry((n) => n + 1)}
+            >
+              重新读取
+            </button>
+          </div>
+        )}
 
         {history ? (
           <>
@@ -831,10 +925,26 @@ function PunchInWallSection({
                             className={`heatmap-cell ${day.status} ${isToday ? "is-today" : ""} ${isChecking ? "is-checking" : ""}`}
                             data-status={day.status}
                             data-today={isToday ? "true" : undefined}
-                            tabIndex={-1}
-                            disabled={!isClickable || isChecking}
+                            ref={(button) => {
+                              if (button) cells.current.set(day.date, button);
+                              else cells.current.delete(day.date);
+                            }}
+                            tabIndex={day.date === focusDate ? 0 : -1}
+                            aria-disabled={
+                              !isClickable || checkingDate !== null
+                            }
                             onClick={() => void handleCheckin(day)}
-                            onMouseEnter={(e) => handleCellMouseEnter(e, day)}
+                            onKeyDown={(event) =>
+                              handleCellKeyboard(event, day.date)
+                            }
+                            onFocus={(event) => {
+                              setActiveDate(day.date);
+                              showCellTooltip(event.currentTarget, day);
+                            }}
+                            onBlur={handleCellMouseLeave}
+                            onMouseEnter={(e) =>
+                              showCellTooltip(e.currentTarget, day)
+                            }
                             onMouseLeave={handleCellMouseLeave}
                             aria-label={`${day.date}，${statusName(day.status)}`}
                           />
@@ -920,7 +1030,7 @@ function PunchInWallSection({
                   {isPlanEnded ? (
                     <>
                       提示：该计划已<strong>结项归档</strong>
-                      ，打卡记录已冻结；如需继续该习惯，可点击上方「修改」延长结束时间。
+                      ，仍可补齐历史活动日期的打卡；暂停或停止期间不可打卡。
                     </>
                   ) : (
                     <>
@@ -932,6 +1042,16 @@ function PunchInWallSection({
               </div>
             </footer>
           </>
+        ) : error ? (
+          <div className="punch-wall-loading" role="alert">
+            <p>{error}</p>
+            <button
+              className="button secondary"
+              onClick={() => setRetry((n) => n + 1)}
+            >
+              重新读取
+            </button>
+          </div>
         ) : (
           <>
             {/* 等高精密骨架屏：结构、网格列数与真实内容 1:1 吻合，彻底杜绝布局抖动 */}

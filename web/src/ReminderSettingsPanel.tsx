@@ -99,40 +99,44 @@ export default function ReminderSettingsPanel({
           onChange={(e) => setEnabled(e.target.checked)}
         />
       </label>
-      {enabled && (
-        <form className="settings-field-group" onSubmit={handleSave}>
-          <label>
-            默认提前提醒偏好
-            <select
-              value={defaultAdvance}
-              onChange={(e) => setDefaultAdvance(Number(e.target.value))}
-            >
-              <option value={0}>准时提醒</option>
-              <option value={5}>提前 5 分钟</option>
-              <option value={15}>提前 15 分钟</option>
-              <option value={30}>提前 30 分钟</option>
-            </select>
-          </label>
-          <label>
-            飞书自定义机器人 Webhook 地址
-            <input
-              type="url"
-              placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              required={enabled}
-            />
-          </label>
-          <label>
-            签名密钥 Secret <span className="optional">可选</span>
-            <input
-              type="password"
-              placeholder="若机器人开启了安全设置中的签名校验请填写"
-              value={webhookSecret}
-              onChange={(e) => setWebhookSecret(e.target.value)}
-            />
-          </label>
-          <div className="settings-reminder-actions">
+      <form className="settings-field-group" onSubmit={handleSave}>
+        {enabled && (
+          <>
+            <label>
+              默认提前提醒偏好
+              <select
+                value={defaultAdvance}
+                onChange={(e) => setDefaultAdvance(Number(e.target.value))}
+              >
+                <option value={0}>准时提醒</option>
+                <option value={5}>提前 5 分钟</option>
+                <option value={15}>提前 15 分钟</option>
+                <option value={30}>提前 30 分钟</option>
+              </select>
+            </label>
+            <label>
+              飞书自定义机器人 Webhook 地址
+              <input
+                type="url"
+                placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                required={enabled}
+              />
+            </label>
+            <label>
+              签名密钥 Secret <span className="optional">可选</span>
+              <input
+                type="password"
+                placeholder="若机器人开启了安全设置中的签名校验请填写"
+                value={webhookSecret}
+                onChange={(e) => setWebhookSecret(e.target.value)}
+              />
+            </label>
+          </>
+        )}
+        <div className="settings-reminder-actions">
+          {enabled && (
             <button
               type="button"
               className="button secondary"
@@ -146,24 +150,24 @@ export default function ReminderSettingsPanel({
               )}
               发送测试消息
             </button>
-            <button type="submit" className="button primary" disabled={saving}>
-              {saving ? (
-                <LoaderCircle className="spin" size={13} />
-              ) : (
-                <Check size={13} />
-              )}
-              保存设置
-            </button>
-          </div>
-          {testResult && (
-            <div
-              className={`reminder-test-status ${testResult.ok ? "success" : "error"}`}
-            >
-              {testResult.msg}
-            </div>
           )}
-        </form>
-      )}
+          <button type="submit" className="button primary" disabled={saving}>
+            {saving ? (
+              <LoaderCircle className="spin" size={13} />
+            ) : (
+              <Check size={13} />
+            )}
+            保存设置
+          </button>
+        </div>
+        {enabled && testResult && (
+          <div
+            className={`reminder-test-status ${testResult.ok ? "success" : "error"}`}
+          >
+            {testResult.msg}
+          </div>
+        )}
+      </form>
     </div>
   );
 }
