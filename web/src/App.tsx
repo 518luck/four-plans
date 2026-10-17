@@ -1620,18 +1620,11 @@ export default function App() {
           >
             <RotateCcw size={18} />
             待重新安排
-            {rescheduleCount > 0 ? (
-              <span className="nav-count">{rescheduleCount}</span>
-            ) : (
-              view === "reschedule" && <span className="nav-active-dot" />
-            )}
+            {view === "reschedule" && <span className="nav-active-dot" />}
           </button>
           <button className="nav-item" onClick={() => setShowTrash(true)}>
             <Trash2 size={18} />
             回收站
-            {trash.length > 0 && (
-              <span className="nav-count">{trash.length}</span>
-            )}
           </button>
         </nav>
         <div className="sidebar-bottom">
