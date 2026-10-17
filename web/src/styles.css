@@ -350,13 +350,30 @@ summary {
   height: 5px;
   border-radius: 50%;
   background: var(--accent-contrast);
+  flex-shrink: 0;
 }
 .nav-count {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
   background: var(--surface-muted);
+  color: var(--muted);
   padding: 3px 7px;
-  border-radius: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.nav-item:hover .nav-count {
+  color: var(--foreground);
+}
+.nav-item.active .nav-count {
+  background: var(--accent-contrast);
+  color: var(--accent);
+  border-color: transparent;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 .sidebar-bottom {
   margin-top: auto;
