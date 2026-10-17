@@ -10,7 +10,6 @@ import {
   AlertCircle,
   Bell,
   ArrowRight,
-  ChevronLeft,
 } from "lucide-react";
 import type { Task, Bucket } from "./api";
 import "./reschedule.css";
@@ -82,17 +81,6 @@ export default function ReschedulePanel({
 
   return (
     <div className="reschedule-panel">
-      {onBackToBoard && (
-        <button
-          type="button"
-          className="statistics-back reschedule-back-link"
-          onClick={onBackToBoard}
-        >
-          <ChevronLeft size={14} />
-          返回计划总览
-        </button>
-      )}
-
       {/* 头部标题与类别切换 */}
       <header className="reschedule-heading">
         <div className="reschedule-heading-main">

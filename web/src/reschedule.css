@@ -13,25 +13,6 @@
   box-sizing: border-box;
 }
 
-/* 返回按钮 */
-.reschedule-back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  padding: 0;
-  color: var(--muted);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: color 0.15s ease;
-  align-self: flex-start;
-}
-
-.reschedule-back-link:hover {
-  color: var(--foreground);
-}
-
 /* 顶部标题区与分类切换控制器 */
 .reschedule-heading {
   display: flex;

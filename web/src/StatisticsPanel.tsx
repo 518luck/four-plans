@@ -354,10 +354,6 @@ export default function StatisticsPanel({
       transition={{ duration: 0.22, type: "tween" }}
       aria-label="计划统计"
     >
-      <button className="statistics-back" onClick={onBack}>
-        <ChevronLeft size={14} />
-        返回计划
-      </button>
       <div className="statistics-heading">
         <h1>计划统计</h1>
         <p>每一份完成，都在积累进步。</p>

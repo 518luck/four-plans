@@ -14,17 +14,6 @@
   --activity-3: #a3a3a3;
   --activity-4: #ededed;
 }
-.statistics-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  padding: 0;
-  color: var(--muted);
-}
-.statistics-back:hover {
-  color: var(--foreground);
-}
 .statistics-heading {
   text-align: center;
   margin: 25px 0 34px;

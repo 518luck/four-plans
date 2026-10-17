@@ -168,11 +168,6 @@ export default function RecurringPanel({
       initial={reduced ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <button className="statistics-back" onClick={onBack}>
-        <ChevronLeft size={14} />
-        返回计划
-      </button>
-
       <header className="recurring-heading">
         <div>
           <div className="eyebrow">ONE GOAL, EVERY DAY</div>
