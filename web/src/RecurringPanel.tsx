@@ -2,6 +2,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   type FormEvent,
   type MouseEvent,
   type CSSProperties,
@@ -326,7 +327,6 @@ export default function RecurringPanel({
           {/* 下层：选中任务的打卡墙 / 活跃墙 */}
           {effectiveSelectedPlan && (
             <PunchInWallSection
-              key={`${effectiveSelectedPlan.id}-${effectiveSelectedPlan.version}`}
               plan={effectiveSelectedPlan}
               onReloadBoard={onReloadBoard}
             />
@@ -337,6 +337,26 @@ export default function RecurringPanel({
   );
 }
 
+// 模块级打卡记录缓存，实现切换计划时 0ms 无缝呈现与数据无感刷新
+const recurringRecordsCache = new Map<string, RecurringHistory>();
+
+// 根据计划起止日期精确计算周数列数，确保骨架屏与真实日历列数与尺寸 100% 吻合
+function computeWeeksCount(start: string, end: string): number {
+  try {
+    const s = new Date(`${start}T12:00:00Z`);
+    const e = new Date(`${end}T12:00:00Z`);
+    const startDayOfWeek = (s.getUTCDay() + 6) % 7; // Mon=0, Sun=6
+    const totalDays = Math.max(
+      1,
+      Math.round((e.getTime() - s.getTime()) / 86400000) + 1,
+    );
+    const totalCells = startDayOfWeek + totalDays;
+    return Math.ceil(totalCells / 7);
+  } catch {
+    return 6;
+  }
+}
+
 function PunchInWallSection({
   plan,
   onReloadBoard,
@@ -344,8 +364,12 @@ function PunchInWallSection({
   plan: RecurringPlan;
   onReloadBoard?: () => void;
 }) {
-  const [history, setHistory] = useState<RecurringHistory | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [historyState, setHistoryState] = useState<RecurringHistory | null>(
+    () => {
+      return recurringRecordsCache.get(plan.id) ?? null;
+    },
+  );
+  const [isFetching, setIsFetching] = useState(false);
   const [checkingDate, setCheckingDate] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{
     record: RecurringRecord;
@@ -355,21 +379,42 @@ function PunchInWallSection({
 
   const todayDate = today();
 
-  const loadHistory = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await getRecurringRecords(plan.id);
-      setHistory(res);
-    } catch {
-      // Keep previous or null
-    } finally {
-      setLoading(false);
-    }
-  }, [plan.id]);
+  // 若当前 state 属于当前 plan，或者缓存中有当前 plan，立即使用；避免任何消失与抖动
+  const history =
+    (historyState?.planId === plan.id ? historyState : null) ??
+    recurringRecordsCache.get(plan.id) ??
+    null;
 
   useEffect(() => {
-    void loadHistory();
-  }, [loadHistory]);
+    setTooltip(null);
+    setCheckingDate(null);
+
+    const cached = recurringRecordsCache.get(plan.id);
+    if (cached) {
+      setHistoryState(cached);
+    } else {
+      setHistoryState(null);
+    }
+
+    let active = true;
+    setIsFetching(true);
+    void getRecurringRecords(plan.id)
+      .then((res) => {
+        if (!active) return;
+        recurringRecordsCache.set(plan.id, res);
+        setHistoryState(res);
+      })
+      .catch(() => {
+        // 出错保留已有展示
+      })
+      .finally(() => {
+        if (active) setIsFetching(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [plan.id, plan.version]);
 
   const handleCheckin = async (record: RecurringRecord) => {
     if (record.status === "upcoming" || record.status === "paused") {
@@ -379,7 +424,8 @@ function PunchInWallSection({
     setCheckingDate(record.date);
     try {
       const updated = await checkinRecurring(plan.id, record.date, nextDone);
-      setHistory(updated);
+      recurringRecordsCache.set(plan.id, updated);
+      setHistoryState(updated);
       onReloadBoard?.();
     } catch {
       // Error handled by request
@@ -387,6 +433,11 @@ function PunchInWallSection({
       setCheckingDate(null);
     }
   };
+
+  const skeletonWeeksCount = useMemo(
+    () => computeWeeksCount(plan.start, plan.end),
+    [plan.start, plan.end],
+  );
 
   // Build calendar matrix (Monday..Sunday rows, weeks columns)
   const calendarWeeks = (() => {
@@ -491,16 +542,20 @@ function PunchInWallSection({
                 {plan.end.replaceAll("-", "/")}
                 {history && ` · 共 ${history.totalDays} 天`}
               </span>
+              {isFetching && history && (
+                <span
+                  className="punch-wall-syncing"
+                  title="正在静默校验最新打卡记录"
+                >
+                  <LoaderCircle size={12} className="spin" />
+                  <span className="syncing-text">更新中</span>
+                </span>
+              )}
             </div>
           </div>
         </header>
 
-        {loading && !history ? (
-          <div className="punch-wall-loading">
-            <LoaderCircle size={22} className="spin" />
-            <span>正在加载打卡记录…</span>
-          </div>
-        ) : history ? (
+        {history ? (
           <>
             {/* 指标统计栏 */}
             <div className="punch-wall-metrics">
@@ -646,7 +701,10 @@ function PunchInWallSection({
             <footer className="punch-wall-footer">
               <div className="punch-legend">
                 <span className="legend-item">
-                  <i className="heatmap-cell completed" data-status="completed" />
+                  <i
+                    className="heatmap-cell completed"
+                    data-status="completed"
+                  />
                   已打卡
                 </span>
                 <span className="legend-item">
@@ -654,7 +712,10 @@ function PunchInWallSection({
                   漏打卡（可补卡）
                 </span>
                 <span className="legend-item">
-                  <i className="heatmap-cell pending is-today" data-status="pending" />
+                  <i
+                    className="heatmap-cell pending is-today"
+                    data-status="pending"
+                  />
                   今日待打卡
                 </span>
                 <span className="legend-item">
@@ -678,7 +739,132 @@ function PunchInWallSection({
               </div>
             </footer>
           </>
-        ) : null}
+        ) : (
+          <>
+            {/* 等高精密骨架屏：结构、网格列数与真实内容 1:1 吻合，彻底杜绝布局抖动 */}
+            <div className="punch-wall-metrics skeleton">
+              <div className="metric-box">
+                <span className="metric-value">
+                  <span className="metric-skeleton-val" />
+                </span>
+                <span className="metric-label">达成率</span>
+                <span className="metric-sub">
+                  <span className="metric-skeleton-sub" />
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">
+                  <span className="metric-skeleton-val" />
+                </span>
+                <span className="metric-label">已打卡天数</span>
+                <span className="metric-sub">
+                  <span className="metric-skeleton-sub" />
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">
+                  <span className="metric-skeleton-val" />
+                </span>
+                <span className="metric-label">漏打卡天数</span>
+                <span className="metric-sub">
+                  <span className="metric-skeleton-sub" />
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">
+                  <span className="metric-skeleton-val" />
+                  <Flame
+                    size={15}
+                    className="metric-icon streak-flame"
+                    style={{ opacity: 0.25 }}
+                  />
+                </span>
+                <span className="metric-label">当前连续</span>
+                <span className="metric-sub">
+                  <span className="metric-skeleton-sub" />
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">
+                  <span className="metric-skeleton-val" />
+                  <Trophy
+                    size={14}
+                    className="metric-icon streak-trophy"
+                    style={{ opacity: 0.25 }}
+                  />
+                </span>
+                <span className="metric-label">最长连续</span>
+                <span className="metric-sub">
+                  <span className="metric-skeleton-sub" />
+                </span>
+              </div>
+            </div>
+
+            <div className="activity-scroller">
+              <div
+                className="activity-calendar"
+                style={
+                  {
+                    "--activity-weeks": skeletonWeeksCount,
+                  } as CSSProperties
+                }
+              >
+                <div className="heatmap-columns skeleton" aria-hidden="true">
+                  {Array.from({ length: skeletonWeeksCount }).map((_, wIdx) => (
+                    <div className="heatmap-week" key={wIdx}>
+                      {Array.from({ length: 7 }).map((_, dIdx) => (
+                        <span
+                          key={dIdx}
+                          className="heatmap-cell skeleton-cell"
+                          aria-hidden="true"
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                <div
+                  className="heatmap-months skeleton-months"
+                  aria-hidden="true"
+                >
+                  <span style={{ gridColumn: "1 / span 2" }}>
+                    {Number(plan.start.slice(5, 7))}月
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <footer className="punch-wall-footer">
+              <div className="punch-legend">
+                <span className="legend-item">
+                  <i
+                    className="heatmap-cell completed"
+                    data-status="completed"
+                  />
+                  已打卡
+                </span>
+                <span className="legend-item">
+                  <i className="heatmap-cell missed" data-status="missed" />
+                  漏打卡（可补卡）
+                </span>
+                <span className="legend-item">
+                  <i
+                    className="heatmap-cell pending is-today"
+                    data-status="pending"
+                  />
+                  今日待打卡
+                </span>
+                <span className="legend-item">
+                  <i className="heatmap-cell upcoming" data-status="upcoming" />
+                  未开始
+                </span>
+              </div>
+              <div className="punch-tip">
+                <LoaderCircle size={13} className="spin" />
+                <span>正在加载打卡记录…</span>
+              </div>
+            </footer>
+          </>
+        )}
       </div>
     </section>
   );
