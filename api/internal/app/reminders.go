@@ -231,7 +231,7 @@ func (s *Server) CheckAndSendReminders(ctx context.Context) error {
 	now := s.now().In(s.location)
 	currentDate := now.Format("2006-01-02")
 
-	rows, err := s.db.QueryContext(ctx, "SELECT "+taskColumns+" FROM tasks WHERE user_id=1 AND scheduled_date=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL", currentDate)
+	rows, err := s.db.QueryContext(ctx, "SELECT "+taskColumns+" FROM tasks WHERE user_id=1 AND scheduled_date=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL AND COALESCE(cancelled_at,'')=''", currentDate)
 	if err != nil {
 		return err
 	}

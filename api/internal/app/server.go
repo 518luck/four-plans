@@ -519,6 +519,7 @@ func (s *Server) updateTask(c *gin.Context) {
 		return
 	}
 	wasDone := task.Done
+	previousDate := task.Date
 	if input.Title != nil {
 		task.Title = *input.Title
 	}
@@ -565,6 +566,9 @@ func (s *Server) updateTask(c *gin.Context) {
 	if err := validateTask(&task, s.location); err != nil {
 		fail(c, 400, err.Error(), "invalid")
 		return
+	}
+	if task.Date != previousDate {
+		task.RemindedAt = ""
 	}
 	task.UpdatedAt = stamp(s.now())
 	if task.Done && !wasDone {

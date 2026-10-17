@@ -263,3 +263,167 @@ func TestRecurringRecordsAndCheckinFlow(t *testing.T) {
 		"done": &doneTrue,
 	}), 400)
 }
+
+func TestRecurringCheckinUsesCanonicalOccurrence(t *testing.T) {
+	t.Run("first request after a new day", func(t *testing.T) {
+		f := newFixture(t)
+		f.setup(t)
+		p := f.recurring(t, "2026-10-13", "2026-10-20")
+		f.advance(1)
+		expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-14", "done": true}), 200)
+		b := f.board(t, "2026-10-14")
+		if len(b.Buckets["today"]) != 1 || !b.Buckets["today"][0].Done || b.Statistics.TotalPlans != 2 {
+			t.Fatalf("check-in must materialize exactly one daily instance: %+v", b)
+		}
+	})
+	t.Run("soft deletion is restored without creating a replacement", func(t *testing.T) {
+		f := newFixture(t)
+		f.setup(t)
+		p := f.recurring(t, "2026-10-13", "2026-10-20")
+		original := f.board(t, "2026-10-13").Buckets["today"][0]
+		expect(t, f.send(t, "DELETE", "/api/tasks/"+original.ID, map[string]any{"version": original.Version}), 204)
+		expect(t, f.send(t, "GET", "/api/recurring/"+p.ID+"/records", nil), 200)
+		expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-13", "done": true}), 200)
+		b := f.board(t, "2026-10-13")
+		if len(b.Buckets["today"]) != 1 || b.Buckets["today"][0].ID != original.ID || !b.Buckets["today"][0].Done || len(b.Trash) != 0 {
+			t.Fatalf("check-in must restore and complete the original instance: %+v", b)
+		}
+		expect(t, f.send(t, "POST", "/api/trash/"+original.ID+"/restore", map[string]any{"version": original.Version + 1}), 409)
+		if b.Statistics.TotalPlans != 1 {
+			t.Fatal("restoration inflated task statistics")
+		}
+	})
+	t.Run("permanent deletion cannot be undone by check-in", func(t *testing.T) {
+		f := newFixture(t)
+		f.setup(t)
+		p := f.recurring(t, "2026-10-13", "2026-10-20")
+		task := f.board(t, "2026-10-13").Buckets["today"][0]
+		expect(t, f.send(t, "DELETE", "/api/tasks/"+task.ID, map[string]any{"version": task.Version}), 204)
+		expect(t, f.send(t, "DELETE", "/api/trash/"+task.ID, map[string]any{"version": task.Version + 1}), 204)
+		r := f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-13", "done": true})
+		expect(t, r, 409)
+		if decode[map[string]string](t, r)["code"] != "purged" {
+			t.Fatal("permanent deletion must return a clear conflict")
+		}
+		if b := f.board(t, "2026-10-13"); len(b.Buckets["today"]) != 0 || b.Statistics.TotalPlans != 0 {
+			t.Fatalf("purged instance was recreated: %+v", b)
+		}
+	})
+	t.Run("moved task retains its original occurrence", func(t *testing.T) {
+		f := newFixture(t)
+		f.setup(t)
+		p := f.recurring(t, "2026-10-13", "2026-10-20")
+		task := f.board(t, "2026-10-13").Buckets["today"][0]
+		expect(t, f.send(t, "PATCH", "/api/tasks/"+task.ID, map[string]any{"version": task.Version, "bucket": "three", "date": "2026-10-14"}), 200)
+		r := f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-13", "done": true})
+		expect(t, r, 200)
+		history := decode[RecurringHistory](t, r)
+		if history.Records[0].TaskID == nil || *history.Records[0].TaskID != task.ID || history.Records[0].Status != "completed" {
+			t.Fatalf("moving a task detached its check-in: %+v", history)
+		}
+		stored, err := scanTask(f.server.db.QueryRow("SELECT "+taskColumns+" FROM tasks WHERE id=?", task.ID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Date != "2026-10-14" || stored.Bucket != "three" || !stored.Done {
+			t.Fatalf("check-in rewrote the task's schedule: %+v", stored)
+		}
+		if f.board(t, "2026-10-13").Statistics.TotalPlans != 1 {
+			t.Fatal("moving then checking in created another task")
+		}
+	})
+}
+
+func TestRecurringCheckinHonorsEffectiveRevision(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	p := f.recurring(t, "2026-10-13", "2026-10-20")
+	expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-13", "done": true}), 200)
+	r := f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": "paused"})
+	expect(t, r, 200)
+	p = decode[RecurringPlan](t, r)
+	f.advance(2)
+	for _, date := range []string{"2026-10-14", "2026-10-15"} {
+		expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": date, "done": true}), 400)
+	}
+	r = f.send(t, "GET", "/api/recurring/"+p.ID+"/records", nil)
+	expect(t, r, 200)
+	history := decode[RecurringHistory](t, r)
+	if history.MissedDays != 0 || history.Records[1].Status != "paused" || history.Records[7].Status != "paused" {
+		t.Fatalf("paused dates must remain inactive, including future dates: %+v", history)
+	}
+	r = f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": "active"})
+	expect(t, r, 200)
+	p = decode[RecurringPlan](t, r)
+	f.advance(1)
+	expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-16", "done": true}), 200)
+	r = f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": "stopped"})
+	expect(t, r, 200)
+	f.advance(2)
+	for _, date := range []string{"2026-10-17", "2026-10-18"} {
+		expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": date, "done": true}), 400)
+	}
+	r = f.send(t, "GET", "/api/recurring/"+p.ID+"/records", nil)
+	expect(t, r, 200)
+	history = decode[RecurringHistory](t, r)
+	if history.TotalDays != 4 || history.PassedDays != 4 || history.CompletedDays != 2 || history.MissedDays != 0 || history.Records[3].Date != "2026-10-16" || history.CurrentStreak != 2 || history.LongestStreak != 2 {
+		t.Fatalf("stopped dates must not create pending/missed records: %+v", history)
+	}
+}
+
+func TestRecurringHistoryExcludesExpiredRevisionGap(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	p := f.recurring(t, "2026-10-13", "2026-10-14")
+	f.advance(3)
+	r := f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "end": "2026-10-20"})
+	expect(t, r, 200)
+	f.advance(1)
+	for _, date := range []string{"2026-10-15", "2026-10-16"} {
+		expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": date, "done": true}), 400)
+	}
+	r = f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-17", "done": true})
+	expect(t, r, 200)
+	history := decode[RecurringHistory](t, r)
+	if history.TotalDays != 6 || history.PassedDays != 3 || history.MissedDays != 2 || history.Records[2].Date != "2026-10-17" || history.CompletedDays != 1 {
+		t.Fatalf("expired dates before an extension must remain inactive: %+v", history)
+	}
+}
+
+func TestRecurringRepeatedAndConcurrentCheckinsPreserveIdentity(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	p := f.recurring(t, "2026-10-13", "2026-10-20")
+	task := f.board(t, "2026-10-13").Buckets["today"][0]
+	expect(t, f.send(t, "PATCH", "/api/tasks/"+task.ID, map[string]any{"version": task.Version, "priority": true}), 200)
+	r := f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-13", "done": true})
+	expect(t, r, 200)
+	completedAt := *decode[RecurringHistory](t, r).Records[0].CompletedAt
+	f.advance(1)
+	var wg sync.WaitGroup
+	statuses := make(chan int, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			statuses <- f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-13", "done": true}).Code
+		}()
+	}
+	wg.Wait()
+	close(statuses)
+	for status := range statuses {
+		if status != 200 {
+			t.Fatalf("concurrent check-in failed with %d", status)
+		}
+	}
+	stored, err := scanTask(f.server.db.QueryRow("SELECT "+taskColumns+" FROM tasks WHERE id=?", task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.CompletedAt != completedAt || stored.Priority || !stored.Done {
+		t.Fatalf("repeated check-in changed completion time or retained priority: %+v", stored)
+	}
+	if f.board(t, "2026-10-14").Statistics.TotalPlans != 2 {
+		t.Fatal("concurrent check-ins duplicated a daily instance")
+	}
+}

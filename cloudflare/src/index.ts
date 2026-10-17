@@ -13,6 +13,7 @@ import {
   text,
   integer,
   boolean,
+  parseDate,
   beijingDate,
   addDays,
   lastDayOfMonth,
@@ -197,7 +198,7 @@ async function checkAndSendReminders(db: DB, now: Date): Promise<void> {
   const rows = (
     await db
       .prepare(
-        "SELECT * FROM tasks WHERE user_id=1 AND scheduled_date=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL",
+        "SELECT * FROM tasks WHERE user_id=1 AND scheduled_date=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL AND COALESCE(cancelled_at,'')=''",
       )
       .bind(currentDate)
       .all<Row>()
@@ -407,6 +408,8 @@ async function taskRoute(
         "priority",
         "reminderTime",
         "reminderAdvance",
+        "cancelled",
+        "cancelledAt",
       ]),
       version = integer(body.version);
     const task = await findTask(db, id);
@@ -416,6 +419,7 @@ async function taskRoute(
     if (body.notes !== undefined) task.notes = text(body.notes);
     if (body.bucket !== undefined)
       task.bucket = text(body.bucket) as Task["bucket"];
+    const previousDate = task.date;
     if (body.date !== undefined) task.date = text(body.date);
     if (body.done !== undefined) task.done = boolean(body.done);
     if (body.priority !== undefined) task.priority = boolean(body.priority);
@@ -431,17 +435,18 @@ async function taskRoute(
       task.reminderAdvance = newAdv;
     }
     if (body.cancelled !== undefined) {
-      if (body.cancelled) {
+      if (boolean(body.cancelled)) {
         task.cancelledAt = stamp;
         task.priority = false;
       } else {
         task.cancelledAt = undefined;
       }
     } else if (body.cancelledAt !== undefined) {
-      task.cancelledAt = body.cancelledAt ? String(body.cancelledAt) : undefined;
+      task.cancelledAt = body.cancelledAt ? text(body.cancelledAt) : undefined;
       if (task.cancelledAt) task.priority = false;
     }
     validateTask(task);
+    if (task.date !== previousDate) task.remindedAt = undefined;
     if (task.done && !wasDone) {
       task.completedAt = stamp;
       task.completionDateEstimated = false;
@@ -612,7 +617,7 @@ async function getRecurringHistory(
   const taskRows = (
     await db
       .prepare(
-        "SELECT id, scheduled_date, done, version, completed_at FROM tasks WHERE recurring_id=? AND user_id=1 AND deleted_at IS NULL ORDER BY scheduled_date ASC",
+        "SELECT t.id, o.scheduled_date, t.done, t.version, t.completed_at FROM recurring_occurrences o JOIN tasks t ON t.id=o.task_id WHERE o.plan_id=? AND t.user_id=1 AND t.deleted_at IS NULL ORDER BY o.scheduled_date ASC",
       )
       .bind(planId)
       .all<Row>()
@@ -638,20 +643,26 @@ async function getRecurringHistory(
   let cur = start;
   while (cur <= end) {
     let revStatus = String(planRow.status);
+    let revEnd = end;
     for (const rev of revRows) {
       if (String(rev.effective_date) <= cur) {
         revStatus = String(rev.status);
+        revEnd = String(rev.end_date);
       }
+    }
+    if (revStatus === "stopped" || cur > revEnd) {
+      cur = addDays(cur, 1);
+      continue;
     }
 
     const t = tasksByDate.get(cur);
     let status: RecurringDayStatus;
     if (t && t.done) {
       status = "completed";
-    } else if (cur > today) {
-      status = "upcoming";
     } else if (revStatus === "paused") {
       status = "paused";
+    } else if (cur > today) {
+      status = "upcoming";
     } else if (cur === today) {
       status = "pending";
     } else {
@@ -693,22 +704,13 @@ async function getRecurringHistory(
   }
 
   let currentStreak = 0;
-  const todayIdx = records.findIndex((r) => r.date === today);
-  if (todayIdx >= 0) {
-    let startIdx = todayIdx;
-    if (records[todayIdx].status !== "completed") {
-      startIdx = todayIdx - 1;
-    }
-    while (startIdx >= 0 && records[startIdx].status === "paused") {
-      startIdx--;
-    }
-    for (let i = startIdx; i >= 0; i--) {
-      if (records[i].status === "completed") {
-        currentStreak++;
-      } else {
-        break;
-      }
-    }
+  let startIdx = records.length - 1;
+  while (startIdx >= 0 && records[startIdx].date > today) startIdx--;
+  if (startIdx >= 0 && records[startIdx].status === "pending") startIdx--;
+  for (let i = startIdx; i >= 0; i--) {
+    if (records[i].status === "paused") continue;
+    if (records[i].status !== "completed") break;
+    currentStreak++;
   }
 
   return {
@@ -733,9 +735,7 @@ async function recurringCheckinRoute(
   const stamp = now.toISOString();
   const body = await input(request, ["date", "done"]);
   const targetDate = text(body.date);
-  if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-    bad("请指定有效的打卡日期");
-  }
+  parseDate(targetDate);
 
   const planRow = await db
     .prepare("SELECT * FROM recurring_plans WHERE id=? AND user_id=1")
@@ -752,46 +752,51 @@ async function recurringCheckinRoute(
     bad("不能为未来日期打卡");
   }
 
-  const existing = await db
+  const revision = await db
     .prepare(
-      "SELECT * FROM tasks WHERE recurring_id=? AND scheduled_date=? AND user_id=1 AND deleted_at IS NULL",
+      "SELECT status,end_date FROM recurring_revisions WHERE plan_id=? AND effective_date<=? ORDER BY effective_date DESC LIMIT 1",
     )
     .bind(planId, targetDate)
     .first<Row>();
+  if (
+    !revision ||
+    revision.status !== "active" ||
+    targetDate > String(revision.end_date)
+  ) {
+    bad("该日期不在有效打卡周期内");
+  }
+
+  await generate(db, now);
+  const occurrence = await db
+    .prepare(
+      "SELECT task_id FROM recurring_occurrences WHERE plan_id=? AND scheduled_date=?",
+    )
+    .bind(planId, targetDate)
+    .first<Row>();
+
+  const existing = await db
+    .prepare("SELECT * FROM tasks WHERE id=? AND user_id=1")
+    .bind(occurrence ? String(occurrence.task_id) : "")
+    .first<Row>();
+  if (!existing) {
+    throw new HttpError(409, "这次打卡记录已永久删除，无法恢复", "purged");
+  }
 
   let nextDone: boolean;
   if (body.done !== undefined) {
     nextDone = boolean(body.done);
   } else {
-    nextDone = existing ? !existing.done : true;
+    nextDone = !existing.done;
   }
 
-  if (existing) {
-    const compAt = nextDone ? stamp : null;
-    await db
-      .prepare(
-        "UPDATE tasks SET done=?, completed_at=?, updated_at=?, version=version+1 WHERE id=? AND user_id=1",
-      )
-      .bind(nextDone ? 1 : 0, compAt, stamp, existing.id)
-      .run();
-  } else {
-    const taskId = randomToken(12);
-    await db
-      .prepare(
-        "INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,done,completed_at,created_at,updated_at,recurring_id,version) VALUES(?,1,?,?, 'today', ?, ?, ?, ?, ?, ?, 1)",
-      )
-      .bind(
-        taskId,
-        String(planRow.title),
-        String(planRow.notes || ""),
-        targetDate,
-        nextDone ? 1 : 0,
-        nextDone ? stamp : null,
-        stamp,
-        stamp,
-        planId,
-      )
-      .run();
+  const result = await db
+    .prepare(
+      "UPDATE tasks SET done=?,completed_at=CASE WHEN ?=1 THEN COALESCE(completed_at,?) ELSE NULL END,completion_date_estimated=0,deleted_at=NULL,cancelled_at=NULL,priority=0,updated_at=?,version=version+1 WHERE id=? AND user_id=1",
+    )
+    .bind(nextDone ? 1 : 0, nextDone ? 1 : 0, stamp, stamp, existing.id)
+    .run();
+  if (!result.meta.changes) {
+    throw new HttpError(409, "这次打卡记录已永久删除，无法恢复", "purged");
   }
 
   const history = await getRecurringHistory(db, planId, now);
@@ -1086,7 +1091,10 @@ async function api(request: Request, env: Env): Promise<Response> {
             }
           } else if (task.date <= date && date < cycleEnd) {
             buckets.three.push(task);
-          } else if (task.date >= bounds.three.start && task.date <= bounds.three.end) {
+          } else if (
+            task.date >= bounds.three.start &&
+            task.date <= bounds.three.end
+          ) {
             buckets.three.push(task);
           } else if (date > cycleEnd && !task.done && !task.recurringId) {
             carryovers.push(task);
@@ -1107,7 +1115,11 @@ async function api(request: Request, env: Env): Promise<Response> {
             } else {
               buckets.week.push(task);
             }
-          } else if (date >= friday && date < sunday && (createdDate < friday || date > createdDate)) {
+          } else if (
+            date >= friday &&
+            date < sunday &&
+            (createdDate < friday || date > createdDate)
+          ) {
             if (!task.done) {
               buckets.three.push({
                 ...task,
@@ -1288,6 +1300,6 @@ export default {
     return response;
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    await checkAndSendReminders(env.DB, new Date());
+    await checkAndSendReminders(env.DB, new Date(env.TEST_NOW || Date.now()));
   },
 } satisfies ExportedHandler<Env>;

@@ -148,3 +148,70 @@ func TestTaskReminderWorkflowAndNotification(t *testing.T) {
 		t.Fatal("remindedAt should be reset after updating reminderTime")
 	}
 }
+
+func TestRemindersSkipCancelledTasksAndSupportLegacyNull(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	var received atomic.Int32
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received.Add(1)
+		_, _ = w.Write([]byte(`{"code":0}`))
+	}))
+	defer mock.Close()
+	expect(t, f.send(t, "PUT", "/api/settings/reminder", map[string]any{"enabled": true, "webhookUrl": mock.URL}), 200)
+	for _, cancelled := range []bool{true, false} {
+		r := f.send(t, "POST", "/api/tasks", map[string]any{"title": "提醒", "bucket": "today", "date": "2026-10-13", "reminderTime": "09:00"})
+		expect(t, r, 201)
+		task := decode[Task](t, r)
+		if cancelled {
+			expect(t, f.send(t, "PATCH", "/api/tasks/"+task.ID, map[string]any{"version": task.Version, "cancelledAt": stamp(f.server.now())}), 200)
+		} else if _, err := f.server.db.Exec("UPDATE tasks SET cancelled_at=NULL WHERE id=?", task.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.server.CheckAndSendReminders(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if received.Load() != 1 {
+		t.Fatalf("only the active legacy-NULL task should notify, got %d", received.Load())
+	}
+}
+
+func TestRescheduledTaskCanSendReminderOnNewDate(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	var received atomic.Int32
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received.Add(1)
+		_, _ = w.Write([]byte(`{"code":0}`))
+	}))
+	defer mock.Close()
+	expect(t, f.send(t, "PUT", "/api/settings/reminder", map[string]any{"enabled": true, "webhookUrl": mock.URL}), 200)
+	r := f.send(t, "POST", "/api/tasks", map[string]any{"title": "改期提醒", "bucket": "today", "date": "2026-10-13", "reminderTime": "09:00"})
+	expect(t, r, 201)
+	task := decode[Task](t, r)
+	if err := f.server.CheckAndSendReminders(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r = f.send(t, "PATCH", "/api/tasks/"+task.ID, map[string]any{"version": task.Version, "notes": "只改备注"})
+	expect(t, r, 200)
+	task = decode[Task](t, r)
+	if task.RemindedAt == "" {
+		t.Fatal("editing notes must retain reminder deduplication")
+	}
+	r = f.send(t, "PATCH", "/api/tasks/"+task.ID, map[string]any{"version": task.Version, "date": "2026-10-14"})
+	expect(t, r, 200)
+	task = decode[Task](t, r)
+	if task.RemindedAt != "" {
+		t.Fatal("rescheduling must reset the previous date's reminder")
+	}
+	f.advance(1)
+	for i := 0; i < 2; i++ {
+		if err := f.server.CheckAndSendReminders(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if received.Load() != 2 {
+		t.Fatalf("expected one notification on each date, got %d", received.Load())
+	}
+}

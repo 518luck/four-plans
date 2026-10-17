@@ -379,22 +379,23 @@ func (s *Server) calculateRecurringHistory(ctx context.Context, planID string) (
 
 	today := s.now().In(s.location).Format("2006-01-02")
 
-	rRows, err := s.db.QueryContext(ctx, "SELECT effective_date, status FROM recurring_revisions WHERE plan_id=? ORDER BY effective_date ASC", planID)
+	rRows, err := s.db.QueryContext(ctx, "SELECT effective_date,title,notes,end_date,status FROM recurring_revisions WHERE plan_id=? ORDER BY effective_date ASC", planID)
 	if err != nil {
 		return RecurringHistory{}, err
 	}
-	defer rRows.Close()
-	type rev struct {
-		date   string
-		status string
-	}
-	var revs []rev
+	var revs []recurringRevision
 	for rRows.Next() {
-		var r rev
-		if err := rRows.Scan(&r.date, &r.status); err != nil {
+		var r recurringRevision
+		if err := rRows.Scan(&r.Date, &r.Title, &r.Notes, &r.End, &r.Status); err != nil {
+			rRows.Close()
 			return RecurringHistory{}, err
 		}
 		revs = append(revs, r)
+	}
+	err = rRows.Err()
+	rRows.Close()
+	if err != nil {
+		return RecurringHistory{}, err
 	}
 
 	type taskInfo struct {
@@ -404,18 +405,23 @@ func (s *Server) calculateRecurringHistory(ctx context.Context, planID string) (
 		completedAt sql.NullString
 	}
 	taskMap := make(map[string]taskInfo)
-	tRows, err := s.db.QueryContext(ctx, "SELECT id, scheduled_date, done, version, completed_at FROM tasks WHERE recurring_id=? AND user_id=1 AND deleted_at IS NULL ORDER BY scheduled_date ASC", planID)
+	tRows, err := s.db.QueryContext(ctx, "SELECT t.id,o.scheduled_date,t.done,t.version,t.completed_at FROM recurring_occurrences o JOIN tasks t ON t.id=o.task_id WHERE o.plan_id=? AND t.user_id=1 AND t.deleted_at IS NULL ORDER BY o.scheduled_date ASC", planID)
 	if err != nil {
 		return RecurringHistory{}, err
 	}
-	defer tRows.Close()
 	for tRows.Next() {
 		var date string
 		var t taskInfo
 		if err := tRows.Scan(&t.id, &date, &t.done, &t.version, &t.completedAt); err != nil {
+			tRows.Close()
 			return RecurringHistory{}, err
 		}
 		taskMap[date] = t
+	}
+	err = tRows.Err()
+	tRows.Close()
+	if err != nil {
+		return RecurringHistory{}, err
 	}
 
 	start, err := time.ParseInLocation("2006-01-02", p.Start, s.location)
@@ -428,23 +434,28 @@ func (s *Server) calculateRecurringHistory(ctx context.Context, planID string) (
 	}
 
 	records := make([]RecurringRecord, 0)
+	revisionIndex := -1
 	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
 		date := day.Format("2006-01-02")
-		revStatus := p.Status
-		for _, v := range revs {
-			if v.date <= date {
-				revStatus = v.status
-			}
+		for revisionIndex+1 < len(revs) && revs[revisionIndex+1].Date <= date {
+			revisionIndex++
+		}
+		if revisionIndex < 0 {
+			continue
+		}
+		revision := revs[revisionIndex]
+		if revision.Status == "stopped" || date > revision.End {
+			continue
 		}
 
 		t, hasTask := taskMap[date]
 		status := "upcoming"
 		if hasTask && t.done {
 			status = "completed"
+		} else if revision.Status == "paused" {
+			status = "paused"
 		} else if date > today {
 			status = "upcoming"
-		} else if revStatus == "paused" {
-			status = "paused"
 		} else if date == today {
 			status = "pending"
 		} else {
@@ -492,27 +503,18 @@ func (s *Server) calculateRecurringHistory(ctx context.Context, planID string) (
 	}
 
 	currentStreak := 0
-	todayIdx := -1
-	for i, r := range records {
-		if r.Date == today {
-			todayIdx = i
-			break
-		}
+	startIdx := len(records) - 1
+	for startIdx >= 0 && records[startIdx].Date > today {
+		startIdx--
 	}
-	if todayIdx >= 0 {
-		startIdx := todayIdx
-		if records[todayIdx].Status != "completed" {
-			startIdx = todayIdx - 1
-		}
-		for startIdx >= 0 && records[startIdx].Status == "paused" {
-			startIdx--
-		}
-		for i := startIdx; i >= 0; i-- {
-			if records[i].Status == "completed" {
-				currentStreak++
-			} else {
-				break
-			}
+	if startIdx >= 0 && records[startIdx].Status == "pending" {
+		startIdx--
+	}
+	for i := startIdx; i >= 0; i-- {
+		if records[i].Status == "completed" {
+			currentStreak++
+		} else if records[i].Status != "paused" {
+			break
 		}
 	}
 
@@ -537,14 +539,20 @@ func (s *Server) checkinRecurring(c *gin.Context) {
 		return
 	}
 	targetDate := strings.TrimSpace(in.Date)
-	if _, err := time.ParseInLocation("2006-01-02", targetDate, s.location); err != nil {
+	if date, err := time.ParseInLocation("2006-01-02", targetDate, s.location); err != nil || date.Format("2006-01-02") != targetDate {
 		fail(c, 400, "请指定有效的打卡日期", "invalid")
 		return
 	}
 
 	planID := c.Param("id")
+	tx, err := s.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		s.internal(c, err)
+		return
+	}
+	defer tx.Rollback()
 	var p RecurringPlan
-	err := s.db.QueryRowContext(c.Request.Context(), "SELECT "+recurringColumns+" FROM recurring_plans WHERE id=? AND user_id=1", planID).Scan(&p.ID, &p.Title, &p.Notes, &p.Start, &p.End, &p.Status, &p.EffectiveDate, &p.Version, &p.CreatedAt, &p.UpdatedAt)
+	err = tx.QueryRowContext(c.Request.Context(), "SELECT "+recurringColumns+" FROM recurring_plans WHERE id=? AND user_id=1", planID).Scan(&p.ID, &p.Title, &p.Notes, &p.Start, &p.End, &p.Status, &p.EffectiveDate, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		fail(c, 404, "目标不存在", "not_found")
 		return
@@ -564,52 +572,50 @@ func (s *Server) checkinRecurring(c *gin.Context) {
 		return
 	}
 
-	now := stamp(s.now())
-	tx, err := s.db.BeginTx(c.Request.Context(), nil)
+	var revision recurringRevision
+	err = tx.QueryRowContext(c.Request.Context(), "SELECT effective_date,title,notes,end_date,status FROM recurring_revisions WHERE plan_id=? AND effective_date<=? ORDER BY effective_date DESC LIMIT 1", planID, targetDate).Scan(&revision.Date, &revision.Title, &revision.Notes, &revision.End, &revision.Status)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (revision.Status != "active" || targetDate > revision.End)) {
+		fail(c, 400, "该日期未安排持久计划，无法打卡", "invalid")
+		return
+	}
 	if err != nil {
 		s.internal(c, err)
 		return
 	}
-	defer tx.Rollback()
-
-	var existingID string
-	var existingDone bool
-	err = tx.QueryRowContext(c.Request.Context(), "SELECT id, done FROM tasks WHERE recurring_id=? AND scheduled_date=? AND user_id=1 AND deleted_at IS NULL", planID, targetDate).Scan(&existingID, &existingDone)
+	if err := s.generateRecurringTx(c.Request.Context(), tx); err != nil {
+		s.internal(c, err)
+		return
+	}
+	// The occurrence owns its task even after moving or soft-deleting that task.
+	// A durable occurrence without a task means it was permanently purged.
+	task, err := scanTask(tx.QueryRowContext(c.Request.Context(), "SELECT "+taskColumns+" FROM tasks WHERE user_id=1 AND id=(SELECT task_id FROM recurring_occurrences WHERE plan_id=? AND scheduled_date=?)", planID, targetDate))
+	if errors.Is(err, sql.ErrNoRows) {
+		fail(c, 409, "这次打卡记录已永久删除，无法恢复", "purged")
+		return
+	}
+	if err != nil {
+		s.internal(c, err)
+		return
+	}
 
 	nextDone := true
 	if in.Done != nil {
 		nextDone = *in.Done
-	} else if err == nil {
-		nextDone = !existingDone
-	}
-
-	if err == nil {
-		var compAt any
-		if nextDone {
-			compAt = now
-		}
-		_, err = tx.ExecContext(c.Request.Context(), "UPDATE tasks SET done=?, completed_at=NULLIF(?,''), updated_at=?, version=version+1 WHERE id=? AND user_id=1", nextDone, compAt, now, existingID)
-		if err != nil {
-			s.internal(c, err)
-			return
-		}
-	} else if errors.Is(err, sql.ErrNoRows) {
-		token, err := newToken()
-		if err != nil {
-			s.internal(c, err)
-			return
-		}
-		taskID := token[:24]
-		var compAt any
-		if nextDone {
-			compAt = now
-		}
-		_, err = tx.ExecContext(c.Request.Context(), "INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,done,completed_at,created_at,updated_at,recurring_id,version) VALUES(?,1,?,?,'today',?,?,?,?,?,?,1)", taskID, p.Title, p.Notes, targetDate, nextDone, compAt, now, now, planID)
-		if err != nil {
-			s.internal(c, err)
-			return
-		}
 	} else {
+		nextDone = !task.Done
+	}
+	now := stamp(s.now())
+	completedAt := task.CompletedAt
+	estimated := task.CompletionDateEstimated
+	if nextDone && !task.Done {
+		completedAt = now
+		estimated = false
+	} else if !nextDone {
+		completedAt = ""
+		estimated = false
+	}
+	_, err = tx.ExecContext(c.Request.Context(), "UPDATE tasks SET done=?,completed_at=NULLIF(?,''),completion_date_estimated=?,deleted_at=NULL,cancelled_at='',priority=0,updated_at=?,version=version+1 WHERE id=? AND user_id=1", nextDone, completedAt, estimated, now, task.ID)
+	if err != nil {
 		s.internal(c, err)
 		return
 	}

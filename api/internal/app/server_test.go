@@ -309,6 +309,57 @@ func TestFocusAndStaleWindowConflict(t *testing.T) {
 	}
 }
 
+func TestPromotedTaskCanBecomeTodayFocus(t *testing.T) {
+	for _, item := range []struct {
+		bucket string
+		start  string
+		date   string
+		days   int
+	}{
+		{"three", "2026-10-13", "2026-10-15", 2},
+		{"week", "2026-10-12", "2026-10-18", 5},
+	} {
+		t.Run(item.bucket, func(t *testing.T) {
+			f := newFixture(t)
+			f.setup(t)
+			task := f.create(t, item.bucket, item.start, "自动进入今天", false)
+			previous := f.create(t, "today", item.date, "原重点", true)
+			f.advance(item.days)
+			var projected Task
+			for _, candidate := range f.board(t, item.date).Buckets["today"] {
+				if candidate.ID == task.ID {
+					projected = candidate
+				}
+			}
+			if projected.Bucket != "today" || projected.Date != item.date {
+				t.Fatalf("task was not promoted on its final day: %+v", projected)
+			}
+			// The frontend sends the displayed schedule together with priority.
+			r := f.send(t, "PATCH", "/api/tasks/"+task.ID, map[string]any{"version": projected.Version, "bucket": projected.Bucket, "date": projected.Date, "priority": true})
+			expect(t, r, 200)
+			focused := decode[Task](t, r)
+			if !focused.Priority || focused.Bucket != "today" || focused.Date != item.date {
+				t.Fatalf("promoted task could not become today's focus: %+v", focused)
+			}
+			focuses := 0
+			for _, candidate := range f.board(t, item.date).Buckets["today"] {
+				if candidate.Priority {
+					focuses++
+					if candidate.ID != task.ID {
+						t.Fatal("old focus was not cleared")
+					}
+				}
+				if candidate.ID == previous.ID && candidate.Version != previous.Version+1 {
+					t.Fatal("clearing the old focus must invalidate stale edits")
+				}
+			}
+			if focuses != 1 {
+				t.Fatalf("expected one focus, got %d", focuses)
+			}
+		})
+	}
+}
+
 func TestTrashRestoreAndPermanentDeletion(t *testing.T) {
 	for _, bucket := range []string{"today", "three", "week", "month"} {
 		for _, done := range []bool{false, true} {
