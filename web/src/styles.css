@@ -51,6 +51,33 @@
 body {
   margin: 0;
 }
+/* 全局页面与浏览器窗口滚动条美化 */
+html,
+body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+  background: transparent;
+}
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
+}
 button,
 input,
 select,
