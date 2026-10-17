@@ -176,14 +176,14 @@ export default function RecurringPanel({
                   >
                     <header>
                       <span className="recurring-symbol">
-                        <Repeat2 size={20} />
+                        <Repeat2 size={18} />
                       </span>
                       <div className="recurring-card-header-main">
                         <div className="recurring-card-title-row">
                           <h2>{plan.title}</h2>
                           {isSelected && (
                             <span className="selected-indicator-pill">
-                              <Check size={12} strokeWidth={2.5} />
+                              <Check size={11} strokeWidth={2.5} />
                               当前查看
                             </span>
                           )}

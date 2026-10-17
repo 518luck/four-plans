@@ -49,34 +49,46 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
 }
-.recurring-card,
 .recurring-editor,
 .recurring-empty {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 26px;
+  padding: 24px;
 }
 .recurring-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
   cursor: pointer;
   position: relative;
   transition:
-    border-color 0.18s,
-    box-shadow 0.18s,
-    transform 0.18s;
+    border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none;
 }
 .recurring-card:hover {
   border-color: var(--secondary);
+  transform: translateY(-1px);
 }
 .recurring-card.is-selected {
-  border-color: var(--foreground);
-  box-shadow: 0 0 0 2px var(--foreground);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 8px 24px -4px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme="light"] .recurring-card.is-selected {
+  border-color: rgba(0, 0, 0, 0.38);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.15),
+    0 8px 20px -4px rgba(0, 0, 0, 0.08);
 }
 .recurring-card header {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
+  align-items: center;
+  gap: 12px;
 }
 .recurring-card-header-main {
   flex: 1;
@@ -87,67 +99,87 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  flex-wrap: wrap;
 }
 .selected-indicator-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   font-size: 10px;
-  font-weight: 550;
-  background: var(--foreground);
-  color: var(--background);
+  font-weight: 500;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 2px 7px;
   flex-shrink: 0;
 }
+:root[data-theme="dark"] .selected-indicator-pill {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.3);
+}
 .recurring-symbol {
-  padding: 12px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   background: var(--surface-muted);
   display: flex;
-  border-radius: 11px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  flex-shrink: 0;
+  color: var(--secondary);
 }
 .recurring-card h2 {
-  font-size: 17px;
+  font-size: 15px;
+  font-weight: 600;
   overflow-wrap: anywhere;
   margin: 0;
+  line-height: 1.35;
 }
 .recurring-status {
   font-size: 11px;
   color: var(--muted);
   display: inline-block;
-  margin-top: 7px;
+  margin-top: 4px;
 }
 .recurring-notes {
   color: var(--secondary);
-  font-size: 13px;
-  line-height: 1.7;
-  margin-top: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 10px;
+  margin-bottom: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .recurring-dates {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-  margin: 20px 0 14px;
+  margin: 12px 0 10px;
   display: flex;
-  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 8px;
 }
-.recurring-dates span {
+.recurring-dates span:last-child {
+  background: var(--surface-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
   margin-left: auto;
 }
 .recurring-progress-summary {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 12px;
-  margin-bottom: 8px;
+  font-size: 11px;
+  margin-bottom: 6px;
 }
 .recurring-progress-stats {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .stat-completed {
@@ -156,23 +188,24 @@
 .stat-missed {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 10px;
 }
 .stat-all-good {
   color: var(--muted);
   font-size: 11px;
 }
 .stat-rate {
-  font-weight: 550;
+  font-weight: 600;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--foreground);
 }
 .recurring-progress-track {
-  height: 6px;
+  height: 5px;
   background: var(--surface-muted);
-  border-radius: 4px;
+  border-radius: 999px;
   overflow: hidden;
   position: relative;
 }
@@ -197,21 +230,26 @@
 }
 .recurring-card footer {
   display: flex;
-  gap: 16px;
-  margin-top: 22px;
+  gap: 8px;
+  margin-top: 14px;
   border-top: 1px solid var(--border);
-  padding-top: 16px;
+  padding-top: 12px;
 }
 .recurring-card footer button {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11px;
   color: var(--muted);
-  padding: 4px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 .recurring-card footer button:hover {
   color: var(--foreground);
+  background: var(--surface-muted);
 }
 .recurring-empty {
   display: flex;
