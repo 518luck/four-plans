@@ -355,7 +355,10 @@ export default function StatisticsPanel({
       aria-label="计划统计"
     >
       <div className="statistics-heading">
-        <h1>计划统计</h1>
+        <div className="eyebrow">DATA & INSIGHTS</div>
+        <h1>
+          计划统计<span className="heading-dot">.</span>
+        </h1>
         <p>每一份完成，都在积累进步。</p>
       </div>
       {!data ? (

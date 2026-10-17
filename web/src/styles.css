@@ -539,20 +539,21 @@ summary {
   gap: 20px;
 }
 .heading-row h1 {
-  font-size: 29px;
-  letter-spacing: -1px;
+  font-size: 28px;
+  letter-spacing: -0.8px;
   font-weight: 650;
-  line-height: 1.5;
-  margin-top: 5px;
+  line-height: 1.35;
+  margin: 6px 0 0;
 }
 .heading-dot {
   color: var(--muted);
   margin-left: 3px;
 }
 .heading-row p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
-  margin-top: 8px;
+  margin: 8px 0 0;
+  line-height: 1.5;
 }
 .date-controls {
   display: flex;

@@ -15,18 +15,21 @@
   --activity-4: #ededed;
 }
 .statistics-heading {
-  text-align: center;
-  margin: 25px 0 34px;
+  margin: 0 0 25px;
 }
 .statistics-heading h1 {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.7px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.8px;
+  line-height: 1.35;
+  margin: 6px 0 0;
+  color: var(--foreground);
 }
 .statistics-heading p {
-  margin-top: 9px;
-  font-size: 12px;
+  margin: 8px 0 0;
+  font-size: 13px;
   color: var(--muted);
+  line-height: 1.5;
 }
 .statistics-metrics {
   display: grid;
@@ -295,7 +298,7 @@ button.heatmap-cell:hover {
     padding-top: 22px;
   }
   .statistics-heading {
-    margin-top: 20px;
+    margin-top: 0;
   }
   .statistics-heading h1 {
     font-size: 24px;
