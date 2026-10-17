@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
     "build": "pnpm --dir web build && node scripts/go.mjs build",
-    "test": "node scripts/go.mjs test",
+    "test": "pnpm --dir web test && node scripts/go.mjs test",
     "check": "pnpm --dir web check && pnpm --dir cloudflare check && node scripts/go.mjs vet",
     "format": "prettier --write package.json pnpm-workspace.yaml web/package.json web/index.html web/vite.config.ts web/tsconfig.json web/src scripts README.md",
     "start": "node --env-file-if-exists=.env scripts/start.mjs",

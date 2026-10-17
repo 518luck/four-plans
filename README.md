@@ -80,7 +80,7 @@ HOST=0.0.0.0 pnpm dev
 | ------------------------ | ------------------------------------------- |
 | `pnpm dev`               | 启动开发 API 和 Vite，前端修改后自动刷新    |
 | `pnpm check`             | 检查 TypeScript 并运行 Go vet               |
-| `pnpm test`              | 运行 Go 测试                                |
+| `pnpm test`              | 运行前端状态和 Go 测试                      |
 | `pnpm build`             | 构建前端和 Go 服务                          |
 | `pnpm start`             | 启动构建后的本地服务                        |
 | `pnpm test:cloudflare`   | 在 Workers 运行时验证云端接口与 D1 数据行为 |

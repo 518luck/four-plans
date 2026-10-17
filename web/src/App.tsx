@@ -73,6 +73,7 @@ import {
   type DailyQuote,
   type ReminderSettings,
 } from "./api";
+import { BoardUpdates } from "./boardUpdates";
 import StarSea from "./StarSea";
 import ResourcePanel from "./ResourcePanel";
 import RecurringPanel from "./RecurringPanel";
@@ -121,148 +122,6 @@ const order: Bucket[] = ["today", "three", "week", "month"];
 const StatisticsPanel = lazy(() => import("./StatisticsPanel"));
 type Theme = "light" | "dark";
 type ThemeMode = "light" | "dark" | "system";
-
-function applyTaskOptimisticUpdate(
-  prevBoard: Board,
-  task: Task,
-  change: Partial<Task>,
-): Board {
-  const optimisticTask: Task = {
-    ...task,
-    ...change,
-    updatedAt: new Date().toISOString(),
-  };
-  if (change.done !== undefined) {
-    if (change.done && !task.done) {
-      optimisticTask.completedAt = optimisticTask.updatedAt;
-    } else if (!change.done) {
-      optimisticTask.completedAt = undefined;
-    }
-  }
-
-  const willBeCancelled =
-    Boolean(change.cancelledAt) ||
-    (Boolean(task.cancelledAt) && change.cancelledAt === undefined);
-
-  const targetBucket = change.bucket || task.bucket;
-  const nextBuckets = { ...prevBoard.buckets };
-
-  for (const b of ["today", "three", "week", "month"] as const) {
-    let list = nextBuckets[b] ? [...nextBuckets[b]] : [];
-    if (willBeCancelled) {
-      list = list.filter((t) => t.id !== task.id);
-    } else {
-      if (b === task.bucket && change.bucket && change.bucket !== task.bucket) {
-        list = list.filter((t) => t.id !== task.id);
-      } else if (b === targetBucket) {
-        const exists = list.some((t) => t.id === task.id);
-        if (exists) {
-          list = list.map((t) => (t.id === task.id ? optimisticTask : t));
-        } else {
-          list = [...list, optimisticTask];
-        }
-      }
-      if (change.priority === true && targetBucket === "today" && b === "today") {
-        list = list.map((t) =>
-          t.id === task.id ? t : { ...t, priority: false },
-        );
-      }
-    }
-    nextBuckets[b] = list;
-  }
-
-  let nextCarryovers = prevBoard.carryovers ? [...prevBoard.carryovers] : [];
-  if (willBeCancelled || change.bucket === "today") {
-    nextCarryovers = nextCarryovers.filter((t) => t.id !== task.id);
-  } else {
-    nextCarryovers = nextCarryovers.map((t) =>
-      t.id === task.id ? optimisticTask : t,
-    );
-  }
-
-  let nextCancelled = prevBoard.cancelled ? [...prevBoard.cancelled] : [];
-  if (willBeCancelled) {
-    const exists = nextCancelled.some((t) => t.id === task.id);
-    if (exists) {
-      nextCancelled = nextCancelled.map((t) =>
-        t.id === task.id ? optimisticTask : t,
-      );
-    } else {
-      nextCancelled = [optimisticTask, ...nextCancelled];
-    }
-  } else {
-    nextCancelled = nextCancelled.filter((t) => t.id !== task.id);
-  }
-
-  const nextStats = { ...prevBoard.statistics };
-  if (change.done !== undefined && change.done !== task.done) {
-    if (change.done) {
-      nextStats.completedPlans = (nextStats.completedPlans || 0) + 1;
-    } else {
-      nextStats.completedPlans = Math.max(
-        0,
-        (nextStats.completedPlans || 0) - 1,
-      );
-    }
-    nextStats.completionRate =
-      nextStats.totalPlans > 0
-        ? Math.round((nextStats.completedPlans / nextStats.totalPlans) * 100)
-        : 0;
-  }
-
-  return {
-    ...prevBoard,
-    buckets: nextBuckets,
-    carryovers: nextCarryovers,
-    cancelled: nextCancelled,
-    statistics: nextStats,
-  };
-}
-
-function mergeServerTask(prevBoard: Board, serverTask: Task): Board {
-  const isCancelled = Boolean(serverTask.cancelledAt);
-  const nextBuckets = { ...prevBoard.buckets };
-  for (const b of ["today", "three", "week", "month"] as const) {
-    if (nextBuckets[b]) {
-      if (isCancelled) {
-        nextBuckets[b] = nextBuckets[b].filter((t) => t.id !== serverTask.id);
-      } else {
-        nextBuckets[b] = nextBuckets[b].map((t) =>
-          t.id === serverTask.id ? { ...t, ...serverTask } : t,
-        );
-      }
-    }
-  }
-  let nextCarryovers = prevBoard.carryovers || [];
-  if (isCancelled) {
-    nextCarryovers = nextCarryovers.filter((t) => t.id !== serverTask.id);
-  } else {
-    nextCarryovers = nextCarryovers.map((t) =>
-      t.id === serverTask.id ? { ...t, ...serverTask } : t,
-    );
-  }
-
-  let nextCancelled = prevBoard.cancelled || [];
-  if (isCancelled) {
-    const exists = nextCancelled.some((t) => t.id === serverTask.id);
-    if (exists) {
-      nextCancelled = nextCancelled.map((t) =>
-        t.id === serverTask.id ? { ...t, ...serverTask } : t,
-      );
-    } else {
-      nextCancelled = [serverTask, ...nextCancelled];
-    }
-  } else {
-    nextCancelled = nextCancelled.filter((t) => t.id !== serverTask.id);
-  }
-
-  return {
-    ...prevBoard,
-    buckets: nextBuckets,
-    carryovers: nextCarryovers,
-    cancelled: nextCancelled,
-  };
-}
 
 function ThemeToggle({
   mode,
@@ -1043,6 +902,8 @@ export default function App() {
   const [initialError, setInitialError] = useState("");
   const [anchor, setAnchor] = useState(today);
   const [board, setBoard] = useState<Board | null>(null);
+  const boardUpdates = useRef(new BoardUpdates());
+  const sessionGeneration = useRef(0);
   const [expandedBucket, setExpandedBucket] = useState<Bucket | null>(null);
   const boardGrid = useRef<HTMLElement>(null);
   const revealFrame = useRef<number | null>(null);
@@ -1053,6 +914,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const sequence = useRef(0);
+  const lastBoardSequence = useRef(0);
   const realDate = useRef(today());
   const [editor, setEditor] = useState<Editor | null>(null);
   const draggedTaskRef = useRef<Task | null>(null);
@@ -1062,6 +924,21 @@ export default function App() {
   );
   const boardRef = useRef<Board | null>(null);
   boardRef.current = board;
+  function displayBoard() {
+    const next = boardUpdates.current.snapshot();
+    boardRef.current = next;
+    setBoard(next);
+  }
+  function clearBoard() {
+    ++sessionGeneration.current;
+    ++sequence.current;
+    boardUpdates.current.clear();
+    updatingTaskIdsRef.current.clear();
+    setUpdatingTaskIds(new Set());
+    busyRef.current = false;
+    setBusy(false);
+    displayBoard();
+  }
   const pointerDragRef = useRef<{
     task: Task;
     pointerId: number;
@@ -1229,21 +1106,26 @@ export default function App() {
     const current = ++sequence.current;
     try {
       const data = await request<Board>(`/api/board?date=${anchor}`);
-      if (current === sequence.current) {
-        setBoard(data);
-        setSync("synced");
-      }
+      if (current !== sequence.current)
+        return lastBoardSequence.current > current;
+      lastBoardSequence.current = current;
+      boardUpdates.current.replace(data);
+      displayBoard();
+      setSync(updatingTaskIdsRef.current.size ? "saving" : "synced");
       return true;
     } catch (error) {
-      if (current !== sequence.current) return false;
+      if (current !== sequence.current)
+        return lastBoardSequence.current > current;
       if (error instanceof ApiError && error.status === 401) {
         setSession({ configured: true, user: null });
-        setBoard(null);
+        clearBoard();
         notify("登录已过期，请重新登录", true);
       } else setSync("offline");
       return false;
     }
   }, [anchor, username, notify]);
+  const loadBoardRef = useRef(loadBoard);
+  loadBoardRef.current = loadBoard;
 
   useEffect(() => {
     if (!username) return;
@@ -1280,27 +1162,35 @@ export default function App() {
     message: string,
   ): Promise<boolean> {
     if (busyRef.current) return false;
+    const generation = sessionGeneration.current;
+    ++sequence.current;
     busyRef.current = true;
     setBusy(true);
     setSync("saving");
     try {
       await operation();
-      const refreshed = await loadBoard();
+      if (generation !== sessionGeneration.current) return false;
+      const refreshed = await loadBoardRef.current();
+      if (generation !== sessionGeneration.current) return false;
       notify(
         refreshed ? message : "已保存；暂时无法刷新，请稍后重试",
         !refreshed,
       );
       return true;
     } catch (error) {
+      if (generation !== sessionGeneration.current) return false;
       if (error instanceof ApiError && error.status === 401) {
         setSession({ configured: true, user: null });
-        setBoard(null);
-      } else await loadBoard();
-      notify((error as Error).message, true);
+        clearBoard();
+      } else await loadBoardRef.current();
+      if (generation === sessionGeneration.current)
+        notify((error as Error).message, true);
       return false;
     } finally {
-      busyRef.current = false;
-      setBusy(false);
+      if (generation === sessionGeneration.current) {
+        busyRef.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -1324,46 +1214,65 @@ export default function App() {
       );
     }
 
-    const previousBoard = boardRef.current;
-    if (previousBoard) {
-      const nextBoard = applyTaskOptimisticUpdate(previousBoard, task, change);
-      setBoard(nextBoard);
-    }
-
-    notify(message);
+    // A refresh started before this write must not overwrite its local state.
+    ++sequence.current;
+    const generation = sessionGeneration.current;
+    boardUpdates.current.begin(task, change);
+    displayBoard();
     setSync("saving");
-
     updatingTaskIdsRef.current.add(task.id);
     setUpdatingTaskIds(new Set(updatingTaskIdsRef.current));
 
+    let saved = false;
+    let failure: Error | undefined;
     try {
       const serverTask = await request<Task>(`/api/tasks/${task.id}`, {
         method: "PATCH",
         body: jsonBody({ version: task.version, ...change }),
       });
-
-      setBoard((current) =>
-        current ? mergeServerTask(current, serverTask) : current,
-      );
-      setSync("synced");
-      return true;
+      if (generation !== sessionGeneration.current) return false;
+      ++sequence.current;
+      boardUpdates.current.finish(task.id, serverTask);
+      saved = true;
     } catch (error) {
-      if (previousBoard) {
-        setBoard(previousBoard);
-      }
+      if (generation !== sessionGeneration.current) return false;
+      ++sequence.current;
+      boardUpdates.current.finish(task.id);
+      failure = error as Error;
       if (error instanceof ApiError && error.status === 401) {
         setSession({ configured: true, user: null });
-        setBoard(null);
-      } else if (error instanceof ApiError && error.status === 409) {
-        await loadBoard();
+        clearBoard();
+        notify(failure.message, true);
+        return false;
       }
-      notify((error as Error).message, true);
-      setSync("offline");
-      return false;
-    } finally {
-      updatingTaskIdsRef.current.delete(task.id);
-      setUpdatingTaskIds(new Set(updatingTaskIdsRef.current));
     }
+    displayBoard();
+
+    // The server owns date ranges, automatic promotion, statistics and versions
+    // of other tasks whose priority was cleared. Reconcile after every write.
+    const refreshed = await loadBoardRef.current();
+    if (generation !== sessionGeneration.current) return false;
+    updatingTaskIdsRef.current.delete(task.id);
+    setUpdatingTaskIds(new Set(updatingTaskIdsRef.current));
+    setSync(
+      updatingTaskIdsRef.current.size
+        ? "saving"
+        : refreshed
+          ? "synced"
+          : "offline",
+    );
+    if (failure) {
+      notify(failure.message, true);
+    } else {
+      const refreshingElsewhere = updatingTaskIdsRef.current.size > 0;
+      notify(
+        refreshed || refreshingElsewhere
+          ? message
+          : "已保存；暂时无法刷新，请稍后重试",
+        !refreshed && !refreshingElsewhere,
+      );
+    }
+    return saved;
   }
   async function moveTask(task: Task, bucket: Bucket, date: string) {
     if (task.bucket === bucket) return false;
@@ -1403,7 +1312,7 @@ export default function App() {
       await request("/api/logout", { method: "POST" });
       ++sequence.current;
       setSession({ configured: true, user: null });
-      setBoard(null);
+      clearBoard();
       setEditor(null);
       setExpandedBucket(null);
       endDrag();
@@ -1494,7 +1403,7 @@ export default function App() {
         onFocus={() =>
           void update(
             task,
-            { priority: !task.priority },
+            { priority: !task.priority, bucket: task.bucket, date: task.date },
             task.priority ? "已取消优先标记" : "今天先做这件事",
           )
         }
@@ -2190,9 +2099,7 @@ export default function App() {
             editor.task
               ? update(
                   editor.task,
-                  editor.reschedule
-                    ? { ...input, cancelledAt: "" }
-                    : input,
+                  editor.reschedule ? { ...input, cancelledAt: "" } : input,
                   "计划已更新",
                 )
               : mutate(
@@ -2417,11 +2324,10 @@ export default function App() {
             </div>
             <ReminderSettingsPanel
               initialSettings={board?.reminderSettings}
-              onSaved={(newSettings) =>
-                setBoard((b) =>
-                  b ? { ...b, reminderSettings: newSettings } : b,
-                )
-              }
+              onSaved={(newSettings) => {
+                boardUpdates.current.setReminderSettings(newSettings);
+                displayBoard();
+              }}
               onNotify={(msg) => notify(msg)}
             />
             <ResourcePanel />
