@@ -18,7 +18,6 @@ import {
   Check,
   Flame,
   Trophy,
-  Sparkles,
   AlertCircle,
   LoaderCircle,
   CalendarCheck,
@@ -389,9 +388,6 @@ function PunchInWallSection({
     }
   };
 
-  const todayRecord = history?.records.find((r) => r.date === todayDate);
-  const isTodayInRange = todayDate >= plan.start && todayDate <= plan.end;
-
   // Build calendar matrix (Monday..Sunday rows, weeks columns)
   const calendarWeeks = (() => {
     if (!history || !history.records.length) return [];
@@ -497,35 +493,6 @@ function PunchInWallSection({
               </span>
             </div>
           </div>
-
-          {/* 今日快速打卡按钮 */}
-          {isTodayInRange && plan.status !== "stopped" && todayRecord && (
-            <div className="punch-wall-actions">
-              <button
-                type="button"
-                className={`button ${todayRecord.status === "completed" ? "secondary" : "primary"} today-fast-checkin-btn`}
-                disabled={checkingDate === todayDate}
-                onClick={() => void handleCheckin(todayRecord)}
-              >
-                {checkingDate === todayDate ? (
-                  <>
-                    <LoaderCircle size={15} className="spin" />
-                    更新中…
-                  </>
-                ) : todayRecord.status === "completed" ? (
-                  <>
-                    <Check size={15} />
-                    今日已打卡
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={15} />
-                    今日打卡
-                  </>
-                )}
-              </button>
-            </div>
-          )}
         </header>
 
         {loading && !history ? (

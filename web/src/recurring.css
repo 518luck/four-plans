@@ -328,15 +328,6 @@
   font-size: 12px;
   color: var(--muted);
 }
-.today-fast-checkin-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-weight: 500;
-}
 .punch-wall-loading {
   display: flex;
   align-items: center;
