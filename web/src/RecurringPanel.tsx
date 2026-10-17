@@ -592,7 +592,7 @@ function PunchInWallSection({
             <div className="punch-matrix-scroller">
               <div className="punch-matrix-container">
                 {/* 星期标签列 */}
-                <div className="weekday-labels">
+                <div className="weekday-labels" aria-hidden="true">
                   <span className="weekday-month-spacer" />
                   <span>一</span>
                   <span>二</span>
@@ -606,7 +606,7 @@ function PunchInWallSection({
                 {/* 周列网格 */}
                 <div className="weeks-track">
                   {/* 月份标头 */}
-                  <div className="months-header-row">
+                  <div className="months-header-row" aria-hidden="true">
                     {calendarWeeks.map((week) => (
                       <div className="month-label-slot" key={week.weekIndex}>
                         {week.monthLabel && (
@@ -616,16 +616,20 @@ function PunchInWallSection({
                     ))}
                   </div>
 
-                  {/* 格子主体 */}
-                  <div className="weeks-columns-grid">
+                  {/* 热力图主体列 */}
+                  <div
+                    className="heatmap-columns"
+                    role="group"
+                    aria-label="按天完成打卡热力图，左右切换周，上下切换天"
+                  >
                     {calendarWeeks.map((week) => (
-                      <div className="week-col" key={week.weekIndex}>
+                      <div className="heatmap-week" key={week.weekIndex}>
                         {week.days.map((day, dayIndex) => {
                           if (!day) {
                             return (
-                              <div
-                                key={`empty-${dayIndex}`}
-                                className="punch-cell empty"
+                              <span
+                                key={`outside-${dayIndex}`}
+                                className="heatmap-cell outside-range"
                                 aria-hidden="true"
                               />
                             );
@@ -642,23 +646,15 @@ function PunchInWallSection({
                             <button
                               key={day.date}
                               type="button"
-                              className={`punch-cell ${day.status} ${isToday ? "is-today" : ""}`}
+                              className={`heatmap-cell ${day.status} ${isToday ? "is-today" : ""} ${isChecking ? "is-checking" : ""}`}
+                              data-status={day.status}
+                              data-today={isToday ? "true" : undefined}
                               disabled={!isClickable || isChecking}
                               onClick={() => void handleCheckin(day)}
                               onMouseEnter={(e) => handleCellMouseEnter(e, day)}
                               onMouseLeave={handleCellMouseLeave}
                               aria-label={`${day.date} ${statusName(day.status)}`}
-                            >
-                              {isChecking ? (
-                                <LoaderCircle size={10} className="spin" />
-                              ) : day.status === "completed" ? (
-                                <Check size={11} strokeWidth={3} />
-                              ) : day.status === "missed" ? (
-                                <span className="missed-mark" />
-                              ) : isToday ? (
-                                <span className="today-dot" />
-                              ) : null}
-                            </button>
+                            />
                           );
                         })}
                       </div>
@@ -695,24 +691,24 @@ function PunchInWallSection({
             <footer className="punch-wall-footer">
               <div className="punch-legend">
                 <span className="legend-item">
-                  <i className="punch-cell completed" />
+                  <i className="heatmap-cell completed" data-status="completed" />
                   已打卡
                 </span>
                 <span className="legend-item">
-                  <i className="punch-cell missed" />
+                  <i className="heatmap-cell missed" data-status="missed" />
                   漏打卡（可补卡）
                 </span>
                 <span className="legend-item">
-                  <i className="punch-cell pending is-today" />
+                  <i className="heatmap-cell pending is-today" data-status="pending" />
                   今日待打卡
                 </span>
                 <span className="legend-item">
-                  <i className="punch-cell upcoming" />
+                  <i className="heatmap-cell upcoming" data-status="upcoming" />
                   未开始
                 </span>
                 {history.records.some((r) => r.status === "paused") && (
                   <span className="legend-item">
-                    <i className="punch-cell paused" />
+                    <i className="heatmap-cell paused" data-status="paused" />
                     暂停中
                   </span>
                 )}

@@ -398,7 +398,7 @@
 }
 .punch-matrix-scroller {
   overflow-x: auto;
-  padding: 6px 2px 14px;
+  padding: 8px 4px 14px;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar) transparent;
 }
@@ -414,17 +414,20 @@
   gap: 4px;
   color: var(--muted);
   font-size: 10px;
-  width: 18px;
-  text-align: center;
+  width: 14px;
+  text-align: right;
   flex-shrink: 0;
   user-select: none;
 }
 .weekday-month-spacer {
-  height: 18px;
+  height: 16px;
 }
-.weekday-labels span {
-  height: 24px;
-  line-height: 24px;
+.weekday-labels span:not(.weekday-month-spacer) {
+  height: 13px;
+  line-height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 .weeks-track {
   display: flex;
@@ -434,11 +437,11 @@
 .months-header-row {
   display: flex;
   gap: 4px;
-  height: 18px;
+  height: 16px;
   align-items: center;
 }
 .month-label-slot {
-  width: 24px;
+  width: 13px;
   position: relative;
   flex-shrink: 0;
 }
@@ -446,115 +449,137 @@
   position: absolute;
   left: 0;
   top: 0;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
   white-space: nowrap;
   font-weight: 500;
+  line-height: 16px;
 }
-.weeks-columns-grid {
+.heatmap-columns {
   display: flex;
   gap: 4px;
 }
-.week-col {
+.heatmap-week {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 24px;
+  width: 13px;
   flex-shrink: 0;
 }
-.punch-cell {
-  width: 24px;
-  height: 24px;
-  border-radius: 5px;
-  border: 1px solid transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.heatmap-cell {
+  display: block;
+  width: 13px;
+  height: 13px;
   padding: 0;
-  transition:
-    transform 0.12s,
-    box-shadow 0.12s,
-    background-color 0.12s;
+  margin: 0;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: var(--surface-muted);
+  aspect-ratio: 1;
   position: relative;
+  box-sizing: border-box;
+  transition:
+    transform 0.12s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.12s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.12s ease;
+  outline: none;
 }
-.punch-cell.empty {
-  background: transparent;
-  border: 0;
+.heatmap-cell.outside-range {
+  background: transparent !important;
+  border-color: transparent !important;
   pointer-events: none;
 }
-.punch-cell.completed {
+/* 1. 已完成（做完）：高质感绿色实色色块 */
+.heatmap-cell.completed,
+.heatmap-cell[data-status="completed"] {
   background: #10b981;
-  color: #ffffff;
+  border-color: #10b981;
   cursor: pointer;
 }
-:root[data-theme="dark"] .punch-cell.completed {
+:root[data-theme="dark"] .heatmap-cell.completed,
+:root[data-theme="dark"] .heatmap-cell[data-status="completed"] {
   background: #059669;
-  color: #ffffff;
+  border-color: #059669;
 }
-.punch-cell.completed:hover {
-  transform: scale(1.15);
+.heatmap-cell.completed:hover,
+.heatmap-cell[data-status="completed"]:hover {
+  transform: scale(1.3);
   box-shadow: 0 0 0 2px var(--foreground);
-  z-index: 2;
+  z-index: 3;
 }
-.punch-cell.missed {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.45);
-  color: #ef4444;
-  cursor: pointer;
-}
-:root[data-theme="dark"] .punch-cell.missed {
-  background: rgba(239, 68, 68, 0.22);
-  border-color: rgba(239, 68, 68, 0.6);
-}
-.missed-mark {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+/* 2. 漏打卡（未做完）：纯净红色实色色块 */
+.heatmap-cell.missed,
+.heatmap-cell[data-status="missed"] {
   background: #ef4444;
-  display: block;
-}
-.punch-cell.missed:hover {
-  transform: scale(1.15);
   border-color: #ef4444;
-  box-shadow: 0 0 0 2px #ef4444;
-  z-index: 2;
-}
-.punch-cell.pending {
-  border: 2px dashed var(--foreground);
-  background: var(--surface);
-  color: var(--foreground);
   cursor: pointer;
 }
-.today-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--foreground);
-  display: block;
+:root[data-theme="dark"] .heatmap-cell.missed,
+:root[data-theme="dark"] .heatmap-cell[data-status="missed"] {
+  background: #dc2626;
+  border-color: #dc2626;
 }
-.punch-cell.pending:hover {
-  transform: scale(1.15);
+.heatmap-cell.missed:hover,
+.heatmap-cell[data-status="missed"]:hover {
+  transform: scale(1.3);
   box-shadow: 0 0 0 2px var(--foreground);
-  z-index: 2;
+  z-index: 3;
 }
-.punch-cell.is-today {
+/* 3. 今日待打卡：突出高亮边框和呼吸灯提醒 */
+.heatmap-cell.pending,
+.heatmap-cell[data-status="pending"] {
+  background: var(--surface);
+  border: 1.5px solid var(--foreground);
+  cursor: pointer;
+}
+.heatmap-cell.pending:hover,
+.heatmap-cell[data-status="pending"]:hover {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 2px var(--foreground);
+  z-index: 3;
+}
+.heatmap-cell.is-today {
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
-.punch-cell.upcoming {
+/* 4. 未开始（未来日期） */
+.heatmap-cell.upcoming,
+.heatmap-cell[data-status="upcoming"] {
   background: var(--surface-muted);
-  opacity: 0.45;
+  opacity: 0.55;
   cursor: default;
 }
-.punch-cell.paused {
+/* 5. 暂停期 */
+.heatmap-cell.paused,
+.heatmap-cell[data-status="paused"] {
   background: repeating-linear-gradient(
     45deg,
     var(--surface-muted),
-    var(--surface-muted) 3px,
-    var(--border) 3px,
-    var(--border) 6px
+    var(--surface-muted) 2px,
+    var(--border) 2px,
+    var(--border) 4px
   );
-  opacity: 0.6;
+  opacity: 0.65;
   cursor: default;
+}
+/* 6. 更新中动效 */
+.heatmap-cell.is-checking {
+  opacity: 0.65;
+  animation: heatmap-cell-pulse 0.6s infinite alternate;
+}
+@keyframes heatmap-cell-pulse {
+  from {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 0.95;
+    transform: scale(1.15);
+  }
+}
+.heatmap-cell:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  z-index: 4;
 }
 .punch-tooltip {
   position: fixed;
@@ -635,9 +660,9 @@
   align-items: center;
   gap: 6px;
 }
-.legend-item .punch-cell {
-  width: 14px;
-  height: 14px;
+.legend-item .heatmap-cell {
+  width: 13px;
+  height: 13px;
   border-radius: 3px;
   pointer-events: none;
 }
