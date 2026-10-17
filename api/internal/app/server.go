@@ -466,7 +466,7 @@ func (s *Server) createTask(c *gin.Context) {
 			return
 		}
 	}
-	_, err = tx.ExecContext(c.Request.Context(), `INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,version,created_at,updated_at,reminder_time,reminder_advance) VALUES(?,1,?,?,?,?,?,?,?,?,?,?)`, task.ID, task.Title, task.Notes, task.Bucket, task.Date, task.Priority, task.Version, task.CreatedAt, task.UpdatedAt, task.ReminderTime, task.ReminderAdvance)
+	_, err = tx.ExecContext(c.Request.Context(), `INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,version,created_at,updated_at,reminder_time,reminder_advance,cancelled_at) VALUES(?,1,?,?,?,?,?,?,?,?,?,?,?)`, task.ID, task.Title, task.Notes, task.Bucket, task.Date, task.Priority, task.Version, task.CreatedAt, task.UpdatedAt, task.ReminderTime, task.ReminderAdvance, "")
 	if err != nil {
 		s.internal(c, err)
 		return
@@ -581,7 +581,7 @@ func (s *Server) updateTask(c *gin.Context) {
 			return
 		}
 	}
-	_, err = tx.ExecContext(c.Request.Context(), `UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=?,updated_at=?,completed_at=NULLIF(?,''),completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=?,cancelled_at=NULLIF(?,'') WHERE id=? AND user_id=1`, task.Title, task.Notes, task.Bucket, task.Date, task.Done, task.Priority, task.Version, task.UpdatedAt, task.CompletedAt, task.CompletionDateEstimated, task.ReminderTime, task.ReminderAdvance, task.RemindedAt, task.CancelledAt, task.ID)
+	_, err = tx.ExecContext(c.Request.Context(), `UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=?,updated_at=?,completed_at=NULLIF(?,''),completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=?,cancelled_at=? WHERE id=? AND user_id=1`, task.Title, task.Notes, task.Bucket, task.Date, task.Done, task.Priority, task.Version, task.UpdatedAt, task.CompletedAt, task.CompletionDateEstimated, task.ReminderTime, task.ReminderAdvance, task.RemindedAt, task.CancelledAt, task.ID)
 	if err != nil {
 		s.internal(c, err)
 		return
