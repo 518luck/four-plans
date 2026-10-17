@@ -105,10 +105,40 @@ export default function RecurringPanel({
 
   const date = today();
 
-  // Keep selected plan valid
+  const isPlanEnded = useCallback(
+    (p: RecurringPlan) => {
+      return p.end < date || p.status === "stopped";
+    },
+    [date],
+  );
+
+  const activePlans = useMemo(
+    () => plans?.filter((p) => !isPlanEnded(p)) || [],
+    [plans, isPlanEnded],
+  );
+
+  const endedPlans = useMemo(
+    () => plans?.filter((p) => isPlanEnded(p)) || [],
+    [plans, isPlanEnded],
+  );
+
+  const [filterTab, setFilterTab] = useState<"all" | "active" | "ended">("all");
+
+  const filteredPlans = useMemo(() => {
+    if (filterTab === "active") return activePlans;
+    if (filterTab === "ended") return endedPlans;
+    // 全部展示时：进行中的活跃目标优先排在前面，已结束的历史目标排在后面
+    return [...activePlans, ...endedPlans];
+  }, [filterTab, activePlans, endedPlans]);
+
+  // 智能默认选中：优先选中用户点击的目标；若未指定，优先选中第一个进行中的活跃目标，绝不默认选中已结束目标
   const effectiveSelectedPlan =
     plans?.find((p) => p.id === selectedPlanId) ||
-    (plans && plans.length > 0 ? plans[0] : null);
+    (activePlans.length > 0
+      ? activePlans[0]
+      : plans && plans.length > 0
+        ? plans[0]
+        : null);
 
   const statusLabel = (plan: RecurringPlan) => {
     if (plan.end < date) return "已到期";
@@ -177,9 +207,47 @@ export default function RecurringPanel({
           <section className="recurring-layer-top" aria-label="持久任务有哪些">
             <div className="recurring-layer-header">
               <div className="layer-title-group">
-                <h2>持久任务列表</h2>
+                <div className="layer-title-row">
+                  <h2>持久任务列表</h2>
+                  <div
+                    className="recurring-filter-tabs"
+                    role="tablist"
+                    aria-label="目标状态过滤"
+                  >
+                    <button
+                      type="button"
+                      className={`filter-tab ${filterTab === "all" ? "is-active" : ""}`}
+                      onClick={() => setFilterTab("all")}
+                    >
+                      全部 <span className="tab-count">{plans.length}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-tab ${filterTab === "active" ? "is-active" : ""}`}
+                      onClick={() => setFilterTab("active")}
+                    >
+                      进行中{" "}
+                      <span className="tab-count">{activePlans.length}</span>
+                    </button>
+                    {endedPlans.length > 0 && (
+                      <button
+                        type="button"
+                        className={`filter-tab ${filterTab === "ended" ? "is-active" : ""}`}
+                        onClick={() => setFilterTab("ended")}
+                      >
+                        已结束{" "}
+                        <span className="tab-count">{endedPlans.length}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <span className="layer-subtitle">
-                  共 {plans.length} 个目标 ·{" "}
+                  {filterTab === "active"
+                    ? `展示进行中的 ${activePlans.length} 个目标`
+                    : filterTab === "ended"
+                      ? `展示已到期或停止的 ${endedPlans.length} 个历史归档目标`
+                      : `共 ${plans.length} 个目标（${activePlans.length} 进行中，${endedPlans.length} 已到期/停止）`}
+                  {" · "}
                   {viewMode === "split"
                     ? "点击联动右侧打卡墙"
                     : "点击联动下方打卡墙"}
@@ -242,8 +310,9 @@ export default function RecurringPanel({
             </div>
 
             <div ref={listRef} className="recurring-list">
-              {plans.map((plan) => {
+              {filteredPlans.map((plan) => {
                 const isSelected = effectiveSelectedPlan?.id === plan.id;
+                const isEnded = isPlanEnded(plan);
                 const totalDays =
                   Math.round(
                     (Date.parse(plan.end) - Date.parse(plan.start)) / 86400000,
@@ -261,7 +330,7 @@ export default function RecurringPanel({
 
                 return (
                   <article
-                    className={`recurring-card ${isSelected ? "is-selected" : ""}`}
+                    className={`recurring-card ${isSelected ? "is-selected" : ""} ${isEnded ? "is-ended" : ""}`}
                     key={plan.id}
                     onClick={() => setSelectedPlanId(plan.id)}
                     role="button"
@@ -288,7 +357,9 @@ export default function RecurringPanel({
                             </span>
                           )}
                         </div>
-                        <span className="recurring-status">
+                        <span
+                          className={`recurring-status ${isEnded ? "ended" : ""}`}
+                        >
                           {statusLabel(plan)}
                         </span>
                       </div>
@@ -344,39 +415,37 @@ export default function RecurringPanel({
                       />
                     </div>
 
-                    {plan.status !== "stopped" && (
-                      <footer>
+                    <footer>
+                      <button
+                        disabled={busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditing(plan);
+                        }}
+                      >
+                        <Pencil size={14} />
+                        修改
+                      </button>
+                      {!isEnded && plan.end >= date && (
                         <button
                           disabled={busy}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setEditing(plan);
+                            void onSave(plan, {
+                              status:
+                                plan.status === "paused" ? "active" : "paused",
+                            });
                           }}
                         >
-                          <Pencil size={14} />
-                          修改
+                          {plan.status === "paused" ? (
+                            <Play size={14} />
+                          ) : (
+                            <Pause size={14} />
+                          )}{" "}
+                          {plan.status === "paused" ? "恢复" : "暂停"}
                         </button>
-                        {plan.end >= date && (
-                          <button
-                            disabled={busy}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void onSave(plan, {
-                                status:
-                                  plan.status === "paused"
-                                    ? "active"
-                                    : "paused",
-                              });
-                            }}
-                          >
-                            {plan.status === "paused" ? (
-                              <Play size={14} />
-                            ) : (
-                              <Pause size={14} />
-                            )}{" "}
-                            {plan.status === "paused" ? "恢复" : "暂停"}
-                          </button>
-                        )}
+                      )}
+                      {!isEnded && (
                         <button
                           disabled={busy}
                           onClick={(e) => {
@@ -387,8 +456,8 @@ export default function RecurringPanel({
                           <Square size={13} />
                           停止
                         </button>
-                      </footer>
-                    )}
+                      )}
+                    </footer>
 
                     {stopping === plan.id && (
                       <div
@@ -477,12 +546,18 @@ function PunchInWallSection({
   } | null>(null);
 
   const todayDate = today();
+  const isPlanEnded = plan.end < todayDate || plan.status === "stopped";
 
   // 若当前 state 属于当前 plan，或者缓存中有当前 plan，立即使用；避免任何消失与抖动
   const history =
     (historyState?.planId === plan.id ? historyState : null) ??
     recurringRecordsCache.get(plan.id) ??
     null;
+
+  const remainingDays = Math.max(
+    0,
+    history ? history.totalDays - history.passedDays : 0,
+  );
 
   useEffect(() => {
     setTooltip(null);
@@ -641,6 +716,9 @@ function PunchInWallSection({
                 {plan.end.replaceAll("-", "/")}
                 {history && ` · 共 ${history.totalDays} 天`}
               </span>
+              {isPlanEnded && (
+                <span className="punch-wall-ended-pill">已到期结项</span>
+              )}
               {isFetching && history && (
                 <span
                   className="punch-wall-syncing"
@@ -669,8 +747,11 @@ function PunchInWallSection({
                 <span className="metric-value">{history.completedDays}</span>
                 <span className="metric-label">已打卡天数</span>
                 <span className="metric-sub">
-                  剩余 {Math.max(0, history.totalDays - history.completedDays)}{" "}
-                  天
+                  {isPlanEnded
+                    ? "全周期已结项"
+                    : remainingDays > 0
+                      ? `剩余 ${remainingDays} 天`
+                      : "今日最后一天"}
                 </span>
               </div>
               <div
@@ -679,7 +760,11 @@ function PunchInWallSection({
                 <span className="metric-value">{history.missedDays}</span>
                 <span className="metric-label">漏打卡天数</span>
                 <span className="metric-sub">
-                  {history.missedDays > 0 ? "点击格子可随时补卡" : "全勤无遗漏"}
+                  {isPlanEnded
+                    ? "历史遗留未打卡"
+                    : history.missedDays > 0
+                      ? "点击格子可随时补卡"
+                      : "全勤无遗漏"}
                 </span>
               </div>
               <div className="metric-box">
@@ -687,11 +772,15 @@ function PunchInWallSection({
                   {history.currentStreak}
                   <Flame size={15} className="metric-icon streak-flame" />
                 </span>
-                <span className="metric-label">当前连续</span>
+                <span className="metric-label">
+                  {isPlanEnded ? "最终连续" : "当前连续"}
+                </span>
                 <span className="metric-sub">
-                  {history.currentStreak > 0
-                    ? "保持每日好势头"
-                    : "今日打卡重启连续"}
+                  {isPlanEnded
+                    ? "周期收官连续天数"
+                    : history.currentStreak > 0
+                      ? "保持每日好势头"
+                      : "今日打卡重启连续"}
                 </span>
               </div>
               <div className="metric-box">
@@ -832,8 +921,17 @@ function PunchInWallSection({
               <div className="punch-tip">
                 <AlertCircle size={13} />
                 <span>
-                  提示：点击任意<strong>漏打卡</strong>日期可立即补卡；点击
-                  <strong>已打卡</strong>日期可取消。
+                  {isPlanEnded ? (
+                    <>
+                      提示：该计划已<strong>结项归档</strong>
+                      ，打卡记录已冻结；如需继续该习惯，可点击上方「修改」延长结束时间。
+                    </>
+                  ) : (
+                    <>
+                      提示：点击任意<strong>漏打卡</strong>日期可立即补卡；点击
+                      <strong>已打卡</strong>日期可取消。
+                    </>
+                  )}
                 </span>
               </div>
             </footer>
