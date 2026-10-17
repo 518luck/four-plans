@@ -503,8 +503,19 @@ summary {
 .sync-status.offline {
   color: var(--secondary);
 }
+.heading-row,
+.day-overview,
+.daily-quote,
+.board-toolbar,
+.board-grid,
+.page-footer {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .heading-row {
-  padding: 31px 0 25px;
+  padding: 32px 0 25px;
   display: flex;
   justify-content: space-between;
   align-items: center;

@@ -1,45 +1,70 @@
-/* 待重新安排专属界面样式 */
+/* =======================================================
+   待重新安排专属界面样式 (Reschedule Panel)
+   与全站视觉规范（主看板、计划统计、持久计划）保持 100% 一致的版心与内边距
+   ======================================================= */
+
 .reschedule-panel {
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  max-width: 960px;
+  gap: 28px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding-bottom: 40px;
+  padding: 32px 0 60px;
+  box-sizing: border-box;
 }
 
-.reschedule-header {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-}
-
-.reschedule-title-area {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.reschedule-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.reschedule-badge {
+/* 返回按钮 */
+.reschedule-back-link {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
+  gap: 6px;
+  font-size: 12px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  align-self: flex-start;
+}
+
+.reschedule-back-link:hover {
   color: var(--foreground);
 }
 
+/* 顶部标题区与分类切换控制器 */
+.reschedule-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.reschedule-heading-main {
+  flex: 1;
+  min-width: 280px;
+}
+
+.reschedule-heading-main h1 {
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.8px;
+  line-height: 1.35;
+  margin: 6px 0 0;
+  color: var(--foreground);
+}
+
+.reschedule-subtitle {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* 分类 Tab 切换栏 */
 .reschedule-filter-tabs {
   display: inline-flex;
   align-items: center;
@@ -47,20 +72,21 @@
   background: var(--surface-muted);
   border: 1px solid var(--border);
   padding: 3px;
-  border-radius: 9px;
+  border-radius: 10px;
+  flex-shrink: 0;
 }
 
 .reschedule-filter-tabs .filter-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 6px 14px;
   font-size: 12px;
   font-weight: 500;
   border: none;
   background: transparent;
   color: var(--muted);
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -77,12 +103,13 @@
 }
 
 .reschedule-filter-tabs .tab-count {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: 999px;
   background: var(--surface-muted);
   color: var(--muted);
+  transition: all 0.15s ease;
 }
 
 .reschedule-filter-tabs .filter-tab.is-active .tab-count {
@@ -90,61 +117,65 @@
   color: var(--accent-contrast);
 }
 
-.reschedule-subtitle {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.5;
+/* =======================================================
+   列表主体与卡片系统
+   ======================================================= */
+.reschedule-content {
+  display: flex;
+  flex-direction: column;
 }
 
-/* 列表主体卡片 */
 .reschedule-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .reschedule-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 24px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 20px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  border-radius: 14px;
+  padding: 22px 26px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .reschedule-card:hover {
   border-color: var(--secondary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
 }
 
 .reschedule-card.is-cancelled {
   border-style: dashed;
   background: var(--surface-muted);
+  opacity: 0.9;
 }
 
+/* 卡片左侧内容区 */
 .reschedule-card .card-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
 }
 
 .reschedule-card .card-tags {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
+/* 所属格分类标签 (今天/三天/周/月) */
 .bucket-tag {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -199,13 +230,14 @@
   background: #431407;
 }
 
+/* 状态标签 */
 .status-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 10px;
+  gap: 5px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 6px;
 }
 
@@ -229,90 +261,137 @@
 
 .date-info,
 .reminder-info {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 
+/* 计划标题 */
 .card-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--foreground);
-  line-height: 1.4;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
+/* 计划备注 */
 .card-notes {
   margin: 0;
   font-size: 12px;
   color: var(--muted);
-  line-height: 1.45;
+  line-height: 1.6;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 8px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  display: inline-block;
+  align-self: flex-start;
 }
 
+/* 右侧操作按钮栏 */
 .card-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-shrink: 0;
   flex-wrap: wrap;
 }
 
+.card-actions .button.small {
+  padding: 8px 14px;
+  font-size: 13px;
+  gap: 6px;
+}
+
+/* 取消计划按钮定制 */
 .cancel-action-btn {
-  color: var(--muted);
+  color: var(--secondary);
+  border-color: var(--border);
 }
 
 .cancel-action-btn:hover {
-  color: #dc2626;
+  color: #dc2626 !important;
+  border-color: #fca5a5 !important;
+  background: #fef2f2 !important;
 }
 
-/* 空状态 */
+:root[data-theme="dark"] .cancel-action-btn:hover {
+  color: #f87171 !important;
+  border-color: #7f1d1d !important;
+  background: #450a0a !important;
+}
+
+/* 移入回收站垃圾桶 */
+.card-actions .danger-hover {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+/* =======================================================
+   空状态展示
+   ======================================================= */
 .reschedule-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 24px;
+  padding: 80px 32px;
   background: var(--surface);
   border: 1px dashed var(--border);
-  border-radius: 14px;
+  border-radius: 16px;
   text-align: center;
 }
 
 .reschedule-empty .empty-icon {
   color: #16a34a;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .reschedule-empty h3 {
-  margin: 0 0 8px;
-  font-size: 17px;
-  font-weight: 600;
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 650;
   color: var(--foreground);
 }
 
 .reschedule-empty p {
-  margin: 0 0 20px;
+  margin: 0 0 24px;
   font-size: 13px;
   color: var(--muted);
+  max-width: 420px;
+  line-height: 1.6;
 }
 
 .reschedule-empty .back-board-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 10px 20px;
 }
 
-@media (max-width: 640px) {
+/* =======================================================
+   响应式适配
+   ======================================================= */
+@media (max-width: 860px) {
   .reschedule-card {
     flex-direction: column;
     align-items: stretch;
+    gap: 16px;
+    padding: 18px 20px;
   }
   .card-actions {
     justify-content: flex-end;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
   }
 }

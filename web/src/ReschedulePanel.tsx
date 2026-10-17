@@ -10,6 +10,7 @@ import {
   AlertCircle,
   Bell,
   ArrowRight,
+  ChevronLeft,
 } from "lucide-react";
 import type { Task, Bucket } from "./api";
 import "./reschedule.css";
@@ -81,38 +82,22 @@ export default function ReschedulePanel({
 
   return (
     <div className="reschedule-panel">
+      {onBackToBoard && (
+        <button
+          type="button"
+          className="statistics-back reschedule-back-link"
+          onClick={onBackToBoard}
+        >
+          <ChevronLeft size={14} />
+          返回计划总览
+        </button>
+      )}
+
       {/* 头部标题与类别切换 */}
-      <header className="reschedule-header">
-        <div className="reschedule-title-area">
-          <div className="reschedule-title-row">
-            <span className="reschedule-badge">
-              <RotateCcw size={15} />
-              待重新安排
-            </span>
-            <div className="reschedule-filter-tabs" role="tablist">
-              <button
-                type="button"
-                className={`filter-tab ${tab === "all" ? "is-active" : ""}`}
-                onClick={() => setTab("all")}
-              >
-                全部 <span className="tab-count">{totalCount}</span>
-              </button>
-              <button
-                type="button"
-                className={`filter-tab ${tab === "overdue" ? "is-active" : ""}`}
-                onClick={() => setTab("overdue")}
-              >
-                未按时完成 <span className="tab-count">{carryovers.length}</span>
-              </button>
-              <button
-                type="button"
-                className={`filter-tab ${tab === "cancelled" ? "is-active" : ""}`}
-                onClick={() => setTab("cancelled")}
-              >
-                已取消计划 <span className="tab-count">{cancelled.length}</span>
-              </button>
-            </div>
-          </div>
+      <header className="reschedule-heading">
+        <div className="reschedule-heading-main">
+          <div className="eyebrow">REVISIT & RESCHEDULE</div>
+          <h1>待重新安排</h1>
           <p className="reschedule-subtitle">
             {tab === "overdue"
               ? `共有 ${carryovers.length} 项过去未按时完成的计划，您可以选择放入今天继续、重新改期或取消。`
@@ -120,6 +105,30 @@ export default function ReschedulePanel({
                 ? `共有 ${cancelled.length} 项主动取消的计划，您可以随时重新激活或彻底清理。`
                 : `共 ${totalCount} 项待处理计划（${carryovers.length} 项未按时完成，${cancelled.length} 项已取消）。`}
           </p>
+        </div>
+
+        <div className="reschedule-filter-tabs" role="tablist">
+          <button
+            type="button"
+            className={`filter-tab ${tab === "all" ? "is-active" : ""}`}
+            onClick={() => setTab("all")}
+          >
+            全部 <span className="tab-count">{totalCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`filter-tab ${tab === "overdue" ? "is-active" : ""}`}
+            onClick={() => setTab("overdue")}
+          >
+            未按时完成 <span className="tab-count">{carryovers.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`filter-tab ${tab === "cancelled" ? "is-active" : ""}`}
+            onClick={() => setTab("cancelled")}
+          >
+            已取消计划 <span className="tab-count">{cancelled.length}</span>
+          </button>
         </div>
       </header>
 
@@ -220,7 +229,7 @@ export default function ReschedulePanel({
                     {!isCancelled && (
                       <button
                         type="button"
-                        className="button small ghost cancel-action-btn"
+                        className="button small secondary cancel-action-btn"
                         disabled={busy || isUpdating}
                         onClick={() => void handleCancelTask(task)}
                         title="取消此计划，移入已取消分类"

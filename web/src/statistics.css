@@ -1,7 +1,7 @@
 .statistics-page {
-  max-width: 1040px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 32px 0 40px;
+  padding: 32px 0 60px;
   --activity-0: var(--surface-muted);
   --activity-1: #dedede;
   --activity-2: #a3a3a3;
