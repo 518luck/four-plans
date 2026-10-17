@@ -439,26 +439,16 @@ func (s *Server) calculateRecurringHistory(ctx context.Context, planID string) (
 
 		t, hasTask := taskMap[date]
 		status := "upcoming"
-		if revStatus == "paused" && date <= today {
-			status = "paused"
+		if hasTask && t.done {
+			status = "completed"
 		} else if date > today {
 			status = "upcoming"
-		} else if hasTask {
-			if t.done {
-				status = "completed"
-			} else if date == today {
-				status = "pending"
-			} else {
-				status = "missed"
-			}
+		} else if revStatus == "paused" {
+			status = "paused"
+		} else if date == today {
+			status = "pending"
 		} else {
-			if date == today {
-				status = "pending"
-			} else if date < today {
-				status = "missed"
-			} else {
-				status = "upcoming"
-			}
+			status = "missed"
 		}
 
 		rec := RecurringRecord{
@@ -510,21 +500,18 @@ func (s *Server) calculateRecurringHistory(ctx context.Context, planID string) (
 		}
 	}
 	if todayIdx >= 0 {
-		if records[todayIdx].Status == "completed" {
-			for i := todayIdx; i >= 0; i-- {
-				if records[i].Status == "completed" {
-					currentStreak++
-				} else {
-					break
-				}
-			}
-		} else {
-			for i := todayIdx - 1; i >= 0; i-- {
-				if records[i].Status == "completed" {
-					currentStreak++
-				} else {
-					break
-				}
+		startIdx := todayIdx
+		if records[todayIdx].Status != "completed" {
+			startIdx = todayIdx - 1
+		}
+		for startIdx >= 0 && records[startIdx].Status == "paused" {
+			startIdx--
+		}
+		for i := startIdx; i >= 0; i-- {
+			if records[i].Status == "completed" {
+				currentStreak++
+			} else {
+				break
 			}
 		}
 	}

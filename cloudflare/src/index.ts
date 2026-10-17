@@ -634,26 +634,16 @@ async function getRecurringHistory(
 
     const t = tasksByDate.get(cur);
     let status: RecurringDayStatus;
-    if (revStatus === "paused" && cur <= today) {
-      status = "paused";
+    if (t && t.done) {
+      status = "completed";
     } else if (cur > today) {
       status = "upcoming";
-    } else if (t) {
-      if (t.done) {
-        status = "completed";
-      } else if (cur === today) {
-        status = "pending";
-      } else {
-        status = "missed";
-      }
+    } else if (revStatus === "paused") {
+      status = "paused";
+    } else if (cur === today) {
+      status = "pending";
     } else {
-      if (cur === today) {
-        status = "pending";
-      } else if (cur < today) {
-        status = "missed";
-      } else {
-        status = "upcoming";
-      }
+      status = "missed";
     }
 
     records.push({
@@ -693,15 +683,18 @@ async function getRecurringHistory(
   let currentStreak = 0;
   const todayIdx = records.findIndex((r) => r.date === today);
   if (todayIdx >= 0) {
-    if (records[todayIdx].status === "completed") {
-      for (let i = todayIdx; i >= 0; i--) {
-        if (records[i].status === "completed") currentStreak++;
-        else break;
-      }
-    } else {
-      for (let i = todayIdx - 1; i >= 0; i--) {
-        if (records[i].status === "completed") currentStreak++;
-        else break;
+    let startIdx = todayIdx;
+    if (records[todayIdx].status !== "completed") {
+      startIdx = todayIdx - 1;
+    }
+    while (startIdx >= 0 && records[startIdx].status === "paused") {
+      startIdx--;
+    }
+    for (let i = startIdx; i >= 0; i--) {
+      if (records[i].status === "completed") {
+        currentStreak++;
+      } else {
+        break;
       }
     }
   }

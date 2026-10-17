@@ -154,6 +154,17 @@ try {
       nowStamp,
     );
 
+    if (seed.effectiveDate && seed.effectiveDate > seed.start) {
+      insertRevision.run(
+        planId,
+        seed.start,
+        seed.title,
+        seed.notes,
+        seed.end,
+        "active",
+      );
+    }
+
     insertRevision.run(
       planId,
       effDate,
