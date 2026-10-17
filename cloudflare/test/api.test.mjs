@@ -13,7 +13,11 @@ const sql2 = await readFile(
   new URL("../migrations/0002_add_reminders.sql", import.meta.url),
   "utf8",
 );
-const sql = sql1 + "\n" + sql2;
+const sql3 = await readFile(
+  new URL("../migrations/0003_add_cancelled_at.sql", import.meta.url),
+  "utf8",
+);
+const sql = sql1 + "\n" + sql2 + "\n" + sql3;
 async function fixture(t) {
   const persist = await mkdtemp(path.join(tmpdir(), "four-plans-d1-"));
   const options = {

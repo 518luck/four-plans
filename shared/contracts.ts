@@ -17,6 +17,7 @@ export interface Task {
   reminderTime?: string;
   reminderAdvance?: number;
   remindedAt?: string;
+  cancelledAt?: string;
 }
 export interface ActivityDay {
   date: string;
@@ -53,6 +54,7 @@ export interface Board {
   periods: Record<Bucket, { start: string; end: string }>;
   buckets: Record<Bucket, Task[]>;
   carryovers: Task[];
+  cancelled: Task[];
   trash: Task[];
   syncedAt: string;
   statistics: PlanStatistics;

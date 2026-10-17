@@ -336,10 +336,15 @@ func (s *Server) board(c *gin.Context) {
 	}
 	buckets := map[string][]Task{"today": {}, "three": {}, "week": {}, "month": {}}
 	carryovers := make([]Task, 0)
+	cancelled := make([]Task, 0)
 	trash := make([]Task, 0)
 	for _, task := range tasks {
 		if task.DeletedAt != "" {
 			trash = append(trash, task)
+			continue
+		}
+		if task.CancelledAt != "" {
+			cancelled = append(cancelled, task)
 			continue
 		}
 		switch task.Bucket {
@@ -422,7 +427,7 @@ func (s *Server) board(c *gin.Context) {
 		return
 	}
 	reminderSettings, _ := s.loadReminderSettings(c.Request.Context())
-	c.JSON(200, gin.H{"recurringPlans": plans, "date": date, "periods": bounds, "buckets": buckets, "carryovers": carryovers, "trash": trash, "statistics": calculateStatistics(tasks, s.now(), s.location), "reminderSettings": reminderSettings, "syncedAt": stamp(s.now())})
+	c.JSON(200, gin.H{"recurringPlans": plans, "date": date, "periods": bounds, "buckets": buckets, "carryovers": carryovers, "cancelled": cancelled, "trash": trash, "statistics": calculateStatistics(tasks, s.now(), s.location), "reminderSettings": reminderSettings, "syncedAt": stamp(s.now())})
 }
 
 func (s *Server) createTask(c *gin.Context) {
@@ -484,6 +489,8 @@ func (s *Server) updateTask(c *gin.Context) {
 		Priority        *bool   `json:"priority"`
 		ReminderTime    *string `json:"reminderTime"`
 		ReminderAdvance *int    `json:"reminderAdvance"`
+		Cancelled       *bool   `json:"cancelled"`
+		CancelledAt     *string `json:"cancelledAt"`
 	}
 	if !bind(c, &input) {
 		return
@@ -542,6 +549,19 @@ func (s *Server) updateTask(c *gin.Context) {
 		}
 		task.ReminderAdvance = *input.ReminderAdvance
 	}
+	if input.Cancelled != nil {
+		if *input.Cancelled {
+			task.CancelledAt = stamp(s.now())
+			task.Priority = false
+		} else {
+			task.CancelledAt = ""
+		}
+	} else if input.CancelledAt != nil {
+		task.CancelledAt = *input.CancelledAt
+		if task.CancelledAt != "" {
+			task.Priority = false
+		}
+	}
 	if err := validateTask(&task, s.location); err != nil {
 		fail(c, 400, err.Error(), "invalid")
 		return
@@ -561,7 +581,7 @@ func (s *Server) updateTask(c *gin.Context) {
 			return
 		}
 	}
-	_, err = tx.ExecContext(c.Request.Context(), `UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=?,updated_at=?,completed_at=NULLIF(?,''),completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=? WHERE id=? AND user_id=1`, task.Title, task.Notes, task.Bucket, task.Date, task.Done, task.Priority, task.Version, task.UpdatedAt, task.CompletedAt, task.CompletionDateEstimated, task.ReminderTime, task.ReminderAdvance, task.RemindedAt, task.ID)
+	_, err = tx.ExecContext(c.Request.Context(), `UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=?,updated_at=?,completed_at=NULLIF(?,''),completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=?,cancelled_at=NULLIF(?,'') WHERE id=? AND user_id=1`, task.Title, task.Notes, task.Bucket, task.Date, task.Done, task.Priority, task.Version, task.UpdatedAt, task.CompletedAt, task.CompletionDateEstimated, task.ReminderTime, task.ReminderAdvance, task.RemindedAt, task.CancelledAt, task.ID)
 	if err != nil {
 		s.internal(c, err)
 		return

@@ -39,7 +39,8 @@ func OpenStore(filename string) (*sql.DB, error) {
    scheduled_date TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0,
    priority INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1,
    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT,
-   completed_at TEXT, completion_date_estimated INTEGER NOT NULL DEFAULT 0
+   completed_at TEXT, completion_date_estimated INTEGER NOT NULL DEFAULT 0,
+   cancelled_at TEXT
  );
  CREATE INDEX IF NOT EXISTS tasks_period ON tasks(user_id, bucket, scheduled_date, deleted_at);
  CREATE UNIQUE INDEX IF NOT EXISTS one_focus_per_day ON tasks(user_id, scheduled_date)
@@ -60,6 +61,10 @@ func OpenStore(filename string) (*sql.DB, error) {
 	if err := migrateReminders(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate reminders: %w", err)
+	}
+	if err := migrateCancelled(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate cancelled tasks: %w", err)
 	}
 	if err := os.Chmod(absolute, 0600); err != nil {
 		db.Close()
@@ -217,6 +222,53 @@ func migrateReminders(db *sql.DB) error {
  );
  CREATE INDEX IF NOT EXISTS tasks_reminder ON tasks(scheduled_date, reminder_time);
  PRAGMA user_version = 4;
+ `); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func migrateCancelled(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version int
+	if err := tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version >= 5 {
+		return tx.Commit()
+	}
+	rows, err := tx.Query("PRAGMA table_info(tasks)")
+	if err != nil {
+		return err
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var id, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&id, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if !columns["cancelled_at"] {
+		if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN cancelled_at TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`
+ CREATE INDEX IF NOT EXISTS tasks_cancelled ON tasks(user_id, cancelled_at);
+ PRAGMA user_version = 5;
  `); err != nil {
 		return err
 	}

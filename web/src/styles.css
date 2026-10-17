@@ -194,7 +194,8 @@ summary {
   background: var(--surface-muted);
   color: var(--secondary);
 }
-.danger-hover:hover {
+.danger-hover:hover,
+.cancel-hover:hover {
   background: var(--surface-muted);
   color: var(--secondary);
 }

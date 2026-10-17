@@ -430,6 +430,17 @@ async function taskRoute(
       if (task.reminderAdvance !== newAdv) task.remindedAt = undefined;
       task.reminderAdvance = newAdv;
     }
+    if (body.cancelled !== undefined) {
+      if (body.cancelled) {
+        task.cancelledAt = stamp;
+        task.priority = false;
+      } else {
+        task.cancelledAt = undefined;
+      }
+    } else if (body.cancelledAt !== undefined) {
+      task.cancelledAt = body.cancelledAt ? String(body.cancelledAt) : undefined;
+      if (task.cancelledAt) task.priority = false;
+    }
     validateTask(task);
     if (task.done && !wasDone) {
       task.completedAt = stamp;
@@ -442,7 +453,7 @@ async function taskRoute(
     task.updatedAt = stamp;
     const result = await db
       .prepare(
-        "UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=version+1,updated_at=?,completed_at=?,completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=? WHERE id=? AND user_id=1 AND version=? AND deleted_at IS NULL",
+        "UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=version+1,updated_at=?,completed_at=?,completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=?,cancelled_at=? WHERE id=? AND user_id=1 AND version=? AND deleted_at IS NULL",
       )
       .bind(
         task.title,
@@ -457,6 +468,7 @@ async function taskRoute(
         task.reminderTime || "",
         task.reminderAdvance || 0,
         task.remindedAt || "",
+        task.cancelledAt || null,
         id,
         version,
       )
@@ -1041,10 +1053,15 @@ async function api(request: Request, env: Env): Promise<Response> {
         month: [],
       },
       carryovers: Task[] = [],
+      cancelled: Task[] = [],
       trash: Task[] = [];
     for (const task of tasks) {
       if (task.deletedAt) {
         trash.push(task);
+        continue;
+      }
+      if (task.cancelledAt) {
+        cancelled.push(task);
         continue;
       }
       switch (task.bucket) {
@@ -1140,6 +1157,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       periods: bounds,
       buckets,
       carryovers,
+      cancelled,
       trash,
       recurringPlans: await goals(db, now),
       statistics: statistics(tasks, now),

@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CalendarX,
   Repeat2,
   Settings2,
   CalendarDays,
@@ -75,6 +76,7 @@ import {
 import StarSea from "./StarSea";
 import ResourcePanel from "./ResourcePanel";
 import RecurringPanel from "./RecurringPanel";
+import ReschedulePanel from "./ReschedulePanel";
 import ReminderSettingsPanel from "./ReminderSettingsPanel";
 
 const definitions = {
@@ -138,39 +140,58 @@ function applyTaskOptimisticUpdate(
     }
   }
 
+  const willBeCancelled =
+    Boolean(change.cancelledAt) ||
+    (Boolean(task.cancelledAt) && change.cancelledAt === undefined);
+
   const targetBucket = change.bucket || task.bucket;
   const nextBuckets = { ...prevBoard.buckets };
 
   for (const b of ["today", "three", "week", "month"] as const) {
     let list = nextBuckets[b] ? [...nextBuckets[b]] : [];
-    if (b === task.bucket && change.bucket && change.bucket !== task.bucket) {
+    if (willBeCancelled) {
       list = list.filter((t) => t.id !== task.id);
-    } else if (b === targetBucket) {
-      const exists = list.some((t) => t.id === task.id);
-      if (exists) {
-        list = list.map((t) => (t.id === task.id ? optimisticTask : t));
-      } else {
-        list = [...list, optimisticTask];
+    } else {
+      if (b === task.bucket && change.bucket && change.bucket !== task.bucket) {
+        list = list.filter((t) => t.id !== task.id);
+      } else if (b === targetBucket) {
+        const exists = list.some((t) => t.id === task.id);
+        if (exists) {
+          list = list.map((t) => (t.id === task.id ? optimisticTask : t));
+        } else {
+          list = [...list, optimisticTask];
+        }
       }
-    }
-    if (change.priority === true && targetBucket === "today" && b === "today") {
-      list = list.map((t) =>
-        t.id === task.id ? t : { ...t, priority: false },
-      );
+      if (change.priority === true && targetBucket === "today" && b === "today") {
+        list = list.map((t) =>
+          t.id === task.id ? t : { ...t, priority: false },
+        );
+      }
     }
     nextBuckets[b] = list;
   }
 
   let nextCarryovers = prevBoard.carryovers ? [...prevBoard.carryovers] : [];
-  if (
-    change.bucket === "today" &&
-    nextCarryovers.some((t) => t.id === task.id)
-  ) {
+  if (willBeCancelled || change.bucket === "today") {
     nextCarryovers = nextCarryovers.filter((t) => t.id !== task.id);
   } else {
     nextCarryovers = nextCarryovers.map((t) =>
       t.id === task.id ? optimisticTask : t,
     );
+  }
+
+  let nextCancelled = prevBoard.cancelled ? [...prevBoard.cancelled] : [];
+  if (willBeCancelled) {
+    const exists = nextCancelled.some((t) => t.id === task.id);
+    if (exists) {
+      nextCancelled = nextCancelled.map((t) =>
+        t.id === task.id ? optimisticTask : t,
+      );
+    } else {
+      nextCancelled = [optimisticTask, ...nextCancelled];
+    }
+  } else {
+    nextCancelled = nextCancelled.filter((t) => t.id !== task.id);
   }
 
   const nextStats = { ...prevBoard.statistics };
@@ -193,26 +214,53 @@ function applyTaskOptimisticUpdate(
     ...prevBoard,
     buckets: nextBuckets,
     carryovers: nextCarryovers,
+    cancelled: nextCancelled,
     statistics: nextStats,
   };
 }
 
 function mergeServerTask(prevBoard: Board, serverTask: Task): Board {
+  const isCancelled = Boolean(serverTask.cancelledAt);
   const nextBuckets = { ...prevBoard.buckets };
   for (const b of ["today", "three", "week", "month"] as const) {
     if (nextBuckets[b]) {
-      nextBuckets[b] = nextBuckets[b].map((t) =>
-        t.id === serverTask.id ? { ...t, ...serverTask } : t,
-      );
+      if (isCancelled) {
+        nextBuckets[b] = nextBuckets[b].filter((t) => t.id !== serverTask.id);
+      } else {
+        nextBuckets[b] = nextBuckets[b].map((t) =>
+          t.id === serverTask.id ? { ...t, ...serverTask } : t,
+        );
+      }
     }
   }
-  const nextCarryovers = (prevBoard.carryovers || []).map((t) =>
-    t.id === serverTask.id ? { ...t, ...serverTask } : t,
-  );
+  let nextCarryovers = prevBoard.carryovers || [];
+  if (isCancelled) {
+    nextCarryovers = nextCarryovers.filter((t) => t.id !== serverTask.id);
+  } else {
+    nextCarryovers = nextCarryovers.map((t) =>
+      t.id === serverTask.id ? { ...t, ...serverTask } : t,
+    );
+  }
+
+  let nextCancelled = prevBoard.cancelled || [];
+  if (isCancelled) {
+    const exists = nextCancelled.some((t) => t.id === serverTask.id);
+    if (exists) {
+      nextCancelled = nextCancelled.map((t) =>
+        t.id === serverTask.id ? { ...t, ...serverTask } : t,
+      );
+    } else {
+      nextCancelled = [serverTask, ...nextCancelled];
+    }
+  } else {
+    nextCancelled = nextCancelled.filter((t) => t.id !== serverTask.id);
+  }
+
   return {
     ...prevBoard,
     buckets: nextBuckets,
     carryovers: nextCarryovers,
+    cancelled: nextCancelled,
   };
 }
 
@@ -546,12 +594,14 @@ function TaskEditor({
   busy,
   onClose,
   onSave,
+  onCancel,
 }: {
   editor: Editor;
   anchor: string;
   defaultReminderAdvance?: number;
   busy: boolean;
   onClose: () => void;
+  onCancel?: () => void;
   onSave: (input: {
     title: string;
     notes: string;
@@ -733,6 +783,21 @@ function TaskEditor({
           )}
         </div>
         <div className="modal-footer">
+          {editor.task && !editor.task.done && onCancel && (
+            <button
+              type="button"
+              className="button secondary"
+              style={{ marginRight: "auto" }}
+              disabled={busy}
+              onClick={() => {
+                onCancel();
+                onClose();
+              }}
+            >
+              <CalendarX size={15} />
+              取消此计划
+            </button>
+          )}
           <button
             type="button"
             className="button secondary"
@@ -762,6 +827,7 @@ function TaskRow({
   onFocus,
   onEdit,
   onDelete,
+  onCancel,
   onBreakdown,
   dragging,
   onPointerDown,
@@ -775,6 +841,7 @@ function TaskRow({
   onFocus: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCancel?: () => void;
   onBreakdown: () => void;
   dragging: boolean;
   onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
@@ -878,6 +945,17 @@ function TaskRow({
             <Star size={15} fill={task.priority ? "currentColor" : "none"} />
           </button>
         )}
+        {!task.done && onCancel && (
+          <button
+            className="icon-button cancel-hover"
+            aria-label={`取消计划：${task.title}`}
+            title="取消计划"
+            disabled={busy}
+            onClick={onCancel}
+          >
+            <CalendarX size={14} />
+          </button>
+        )}
         <button
           className="icon-button"
           aria-label={`编辑：${task.title}`}
@@ -901,9 +979,9 @@ function TaskRow({
 
 export default function App() {
   const reduceMotion = useReducedMotion();
-  const [view, setView] = useState<"board" | "statistics" | "recurring">(
-    "board",
-  );
+  const [view, setView] = useState<
+    "board" | "statistics" | "recurring" | "reschedule"
+  >("board");
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [view]);
@@ -999,7 +1077,6 @@ export default function App() {
   const [remove, setRemove] = useState<Task | null>(null);
   const [showTrash, setShowTrash] = useState(false);
   const [purge, setPurge] = useState<Task | null>(null);
-  const [showReview, setShowReview] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [dailyQuote, setDailyQuote] = useState<DailyQuote | null>(null);
@@ -1331,7 +1408,6 @@ export default function App() {
       setExpandedBucket(null);
       endDrag();
       setRemove(null);
-      setShowReview(false);
       setShowTrash(false);
       setShowSettings(false);
       setDailyQuote(null);
@@ -1390,6 +1466,8 @@ export default function App() {
     ? Math.round((completedToday / todayTasks.length) * 100)
     : 0;
   const carryovers = currentBoard?.carryovers || [];
+  const cancelled = currentBoard?.cancelled || [];
+  const rescheduleCount = carryovers.length + cancelled.length;
   const trash = currentBoard?.trash || [];
   const syncIcon =
     sync === "offline" ? (
@@ -1422,6 +1500,13 @@ export default function App() {
         }
         onEdit={() => setEditor({ bucket: task.bucket, task })}
         onDelete={() => setRemove(task)}
+        onCancel={() =>
+          void update(
+            task,
+            { cancelledAt: new Date().toISOString() },
+            "计划已取消",
+          )
+        }
         onBreakdown={() => setEditor({ bucket: "today", source: task })}
         dragging={draggedTask?.id === task.id}
         onPointerDown={(event) => {
@@ -1529,12 +1614,16 @@ export default function App() {
             持久计划
             {view === "recurring" && <span className="nav-active-dot" />}
           </button>
-          <button className="nav-item" onClick={() => setShowReview(true)}>
+          <button
+            className={`nav-item${view === "reschedule" ? " active" : ""}`}
+            onClick={() => setView("reschedule")}
+          >
             <RotateCcw size={18} />
             待重新安排
-            {carryovers.length > 0 && (
-              <span className="nav-count">{carryovers.length}</span>
+            {rescheduleCount > 0 && (
+              <span className="nav-count">{rescheduleCount}</span>
             )}
+            {view === "reschedule" && <span className="nav-active-dot" />}
           </button>
           <button className="nav-item" onClick={() => setShowTrash(true)}>
             <Trash2 size={18} />
@@ -1586,7 +1675,9 @@ export default function App() {
                 ? "计划统计"
                 : view === "recurring"
                   ? "持久计划"
-                  : "计划总览"}
+                  : view === "reschedule"
+                    ? "待重新安排"
+                    : "计划总览"}
             </strong>
           </div>
           <div className="header-actions">
@@ -1683,6 +1774,18 @@ export default function App() {
               }}
             />
           </Suspense>
+        ) : view === "reschedule" ? (
+          <ReschedulePanel
+            carryovers={carryovers}
+            cancelled={cancelled}
+            anchor={anchor}
+            busy={busy}
+            updatingTaskIds={updatingTaskIds}
+            onUpdate={update}
+            onOpenEditor={setEditor}
+            onDelete={(task: Task) => setRemove(task)}
+            onBackToBoard={() => setView("board")}
+          />
         ) : (
           <>
             <section className="heading-row">
@@ -1837,11 +1940,11 @@ export default function App() {
                 </button>
                 <button
                   className="review-button"
-                  onClick={() => setShowReview(true)}
+                  onClick={() => setView("reschedule")}
                 >
                   <RotateCcw size={14} />
                   待重新安排
-                  {carryovers.length > 0 && <b>{carryovers.length}</b>}
+                  {rescheduleCount > 0 && <b>{rescheduleCount}</b>}
                 </button>
               </div>
             </div>
@@ -2078,9 +2181,26 @@ export default function App() {
           defaultReminderAdvance={board?.reminderSettings?.defaultAdvance ?? 0}
           busy={busy}
           onClose={() => setEditor(null)}
+          onCancel={
+            editor.task && !editor.task.done
+              ? () => {
+                  void update(
+                    editor.task!,
+                    { cancelledAt: new Date().toISOString() },
+                    "计划已取消",
+                  );
+                }
+              : undefined
+          }
           onSave={(input) =>
             editor.task
-              ? update(editor.task, input, "计划已更新")
+              ? update(
+                  editor.task,
+                  editor.reschedule
+                    ? { ...input, cancelledAt: "" }
+                    : input,
+                  "计划已更新",
+                )
               : mutate(
                   () =>
                     request("/api/tasks", {
@@ -2262,75 +2382,6 @@ export default function App() {
             >
               确认永久删除
             </button>
-          </div>
-        </Modal>
-      )}
-      {showReview && !editor && !remove && (
-        <Modal
-          title="未完成的事，重新做一次选择"
-          wide
-          onClose={() => setShowReview(false)}
-        >
-          <p className="review-intro">
-            这些计划来自之前的日期。选择继续、改期或移除；它们不会自动占用今天的清单。
-          </p>
-          <div className="review-list">
-            {carryovers.length ? (
-              carryovers.map((task) => (
-                <div className="review-item" key={task.id}>
-                  <div>
-                    <span className={`bucket-chip ${task.bucket}`}>
-                      {definitions[task.bucket].title}
-                    </span>
-                    <small>{task.date}</small>
-                    <h3>{task.title}</h3>
-                    {task.notes && <p>{task.notes}</p>}
-                  </div>
-                  <div className="review-actions">
-                    <button
-                      className="button small primary"
-                      disabled={busy || updatingTaskIds.has(task.id)}
-                      onClick={() =>
-                        void update(
-                          task,
-                          { bucket: "today", date: anchor },
-                          "已重新选入这一天",
-                        )
-                      }
-                    >
-                      这一天继续
-                    </button>
-                    <button
-                      className="button small secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        setEditor({
-                          bucket: task.bucket,
-                          task,
-                          reschedule: true,
-                        })
-                      }
-                    >
-                      改期
-                    </button>
-                    <button
-                      className="icon-button danger-hover"
-                      aria-label={`移除旧计划：${task.title}`}
-                      disabled={busy}
-                      onClick={() => setRemove(task)}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="review-empty">
-                <CircleCheck size={35} />
-                <h3>没有需要重新安排的计划</h3>
-                <p>把注意力留给今天就好。</p>
-              </div>
-            )}
           </div>
         </Modal>
       )}

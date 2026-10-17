@@ -1,0 +1,318 @@
+/* 待重新安排专属界面样式 */
+.reschedule-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+.reschedule-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reschedule-title-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reschedule-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.reschedule-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--foreground);
+}
+
+.reschedule-filter-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  padding: 3px;
+  border-radius: 9px;
+}
+
+.reschedule-filter-tabs .filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.reschedule-filter-tabs .filter-tab:hover {
+  color: var(--foreground);
+}
+
+.reschedule-filter-tabs .filter-tab.is-active {
+  background: var(--surface);
+  color: var(--foreground);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.reschedule-filter-tabs .tab-count {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.reschedule-filter-tabs .filter-tab.is-active .tab-count {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.reschedule-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* 列表主体卡片 */
+.reschedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reschedule-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.reschedule-card:hover {
+  border-color: var(--secondary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.reschedule-card.is-cancelled {
+  border-style: dashed;
+  background: var(--surface-muted);
+}
+
+.reschedule-card .card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reschedule-card .card-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bucket-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.bucket-tag.today {
+  color: #16a34a;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.bucket-tag.three {
+  color: #2563eb;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.bucket-tag.week {
+  color: #9333ea;
+  border-color: #e9d5ff;
+  background: #faf5ff;
+}
+
+.bucket-tag.month {
+  color: #ea580c;
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+:root[data-theme="dark"] .bucket-tag.today {
+  color: #4ade80;
+  border-color: #14532d;
+  background: #052e16;
+}
+
+:root[data-theme="dark"] .bucket-tag.three {
+  color: #60a5fa;
+  border-color: #1e3a8a;
+  background: #082f49;
+}
+
+:root[data-theme="dark"] .bucket-tag.week {
+  color: #c084fc;
+  border-color: #581c87;
+  background: #2e1065;
+}
+
+:root[data-theme="dark"] .bucket-tag.month {
+  color: #fb923c;
+  border-color: #7c2d12;
+  background: #431407;
+}
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.status-tag.tag-overdue {
+  color: #dc2626;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+:root[data-theme="dark"] .status-tag.tag-overdue {
+  color: #f87171;
+  background: #450a0a;
+  border-color: #7f1d1d;
+}
+
+.status-tag.tag-cancelled {
+  color: var(--muted);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.date-info,
+.reminder-info {
+  font-size: 11px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--foreground);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.card-notes {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.cancel-action-btn {
+  color: var(--muted);
+}
+
+.cancel-action-btn:hover {
+  color: #dc2626;
+}
+
+/* 空状态 */
+.reschedule-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.reschedule-empty .empty-icon {
+  color: #16a34a;
+  margin-bottom: 16px;
+}
+
+.reschedule-empty h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.reschedule-empty p {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.reschedule-empty .back-board-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .reschedule-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .card-actions {
+    justify-content: flex-end;
+  }
+}

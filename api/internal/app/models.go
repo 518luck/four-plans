@@ -27,6 +27,7 @@ type Task struct {
 	ReminderTime            string `json:"reminderTime,omitempty"`
 	ReminderAdvance         int    `json:"reminderAdvance"`
 	RemindedAt              string `json:"remindedAt,omitempty"`
+	CancelledAt             string `json:"cancelledAt,omitempty"`
 }
 
 type ReminderSettings struct {
@@ -112,13 +113,13 @@ func validateTask(task *Task, location *time.Location) error {
 	return nil
 }
 
-const taskColumns = "id,title,notes,bucket,scheduled_date,done,priority,version,created_at,updated_at,COALESCE(deleted_at,''),COALESCE(completed_at,''),completion_date_estimated,recurring_id,COALESCE(reminder_time,''),COALESCE(reminder_advance,0),COALESCE(reminded_at,'')"
+const taskColumns = "id,title,notes,bucket,scheduled_date,done,priority,version,created_at,updated_at,COALESCE(deleted_at,''),COALESCE(completed_at,''),completion_date_estimated,recurring_id,COALESCE(reminder_time,''),COALESCE(reminder_advance,0),COALESCE(reminded_at,''),COALESCE(cancelled_at,'')"
 
 type scanner interface{ Scan(...any) error }
 
 func scanTask(row scanner) (Task, error) {
 	var task Task
-	err := row.Scan(&task.ID, &task.Title, &task.Notes, &task.Bucket, &task.Date, &task.Done, &task.Priority, &task.Version, &task.CreatedAt, &task.UpdatedAt, &task.DeletedAt, &task.CompletedAt, &task.CompletionDateEstimated, &task.RecurringID, &task.ReminderTime, &task.ReminderAdvance, &task.RemindedAt)
+	err := row.Scan(&task.ID, &task.Title, &task.Notes, &task.Bucket, &task.Date, &task.Done, &task.Priority, &task.Version, &task.CreatedAt, &task.UpdatedAt, &task.DeletedAt, &task.CompletedAt, &task.CompletionDateEstimated, &task.RecurringID, &task.ReminderTime, &task.ReminderAdvance, &task.RemindedAt, &task.CancelledAt)
 	return task, err
 }
 

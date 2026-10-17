@@ -100,6 +100,7 @@ export function taskFromRow(row: Row): Task {
     reminderTime: row.reminder_time ? String(row.reminder_time) : undefined,
     reminderAdvance: row.reminder_advance ? Number(row.reminder_advance) : 0,
     remindedAt: row.reminded_at ? String(row.reminded_at) : undefined,
+    cancelledAt: row.cancelled_at ? String(row.cancelled_at) : undefined,
   };
 }
 export function goalFromRow(row: Row): RecurringPlan {
@@ -181,7 +182,7 @@ export function statistics(tasks: Task[], now: Date, year = 0): PlanStatistics {
   const counts = new Map<string, number>();
   let earliestYear = Number(actualToday.slice(0, 4));
   for (const task of tasks) {
-    if (task.deletedAt) continue;
+    if (task.deletedAt || task.cancelledAt) continue;
     result.totalPlans++;
     earliestYear = Math.min(earliestYear, Number(task.date.slice(0, 4)));
     if (!task.done) continue;
@@ -232,7 +233,7 @@ export function dayDetail(tasks: Task[], date: string): DayDetail {
   };
 
   for (const task of tasks) {
-    if (task.deletedAt) continue;
+    if (task.deletedAt || task.cancelledAt) continue;
 
     let compDate = "";
     if (task.done) {

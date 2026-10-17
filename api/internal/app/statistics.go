@@ -46,7 +46,7 @@ func calculateStatisticsRange(tasks []Task, now time.Time, location *time.Locati
 	result := Statistics{Start: start.Format("2006-01-02"), End: end.Format("2006-01-02"), Days: make([]ActivityDay, 0, 365)}
 	counts := map[string]int{}
 	for _, task := range tasks {
-		if task.DeletedAt != "" {
+		if task.DeletedAt != "" || task.CancelledAt != "" {
 			continue
 		}
 		result.TotalPlans++
@@ -160,7 +160,7 @@ func calculateDayDetail(tasks []Task, date string, location *time.Location) DayD
 	}
 
 	for _, task := range tasks {
-		if task.DeletedAt != "" {
+		if task.DeletedAt != "" || task.CancelledAt != "" {
 			continue
 		}
 
