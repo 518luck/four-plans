@@ -128,90 +128,21 @@
   border-color: var(--secondary);
 }
 
-.recurring-view-switcher {
-  display: inline-flex;
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  padding: 2px;
-  border-radius: 8px;
-  gap: 2px;
-}
-.recurring-view-switcher .view-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.recurring-view-switcher .view-btn:hover {
-  color: var(--foreground);
-}
-.recurring-view-switcher .view-btn.is-active {
-  background: var(--surface);
-  color: var(--foreground);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  font-weight: 600;
-}
-
 /* =======================================================
-   方案 A：左右双栏布局 (mode-split)
+   上下横轨跑道布局 (上下结构：上方卡片横轨，下方全宽打卡墙)
    ======================================================= */
-.recurring-layout-container.mode-split {
-  display: grid;
-  grid-template-columns: 380px minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
-}
-.recurring-layout-container.mode-split .recurring-layer-top {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.recurring-layout-container.mode-split .recurring-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: calc(100vh - 180px);
-  overflow-y: auto;
-  padding-right: 6px;
-}
-.recurring-layout-container.mode-split .recurring-layer-bottom {
-  position: sticky;
-  top: 18px;
-}
-.recurring-layout-container.mode-split .recurring-card {
-  padding: 15px 17px;
-}
-.recurring-layout-container.mode-split .recurring-notes {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 11px;
-  margin-top: 6px;
-}
-
-/* =======================================================
-   方案 B：上下横向跑道布局 (mode-track)
-   ======================================================= */
+.recurring-layout-container,
 .recurring-layout-container.mode-track {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
-.recurring-layout-container.mode-track .recurring-layer-top {
+.recurring-layout-container .recurring-layer-top {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.recurring-layout-container.mode-track .recurring-list {
+.recurring-layout-container .recurring-list {
   display: flex;
   flex-direction: row;
   overflow-x: auto;
@@ -222,42 +153,26 @@
   overscroll-behavior-y: contain;
   overscroll-behavior-x: contain;
 }
-.recurring-layout-container.mode-track .recurring-card {
+.recurring-layout-container .recurring-card {
   flex: 0 0 276px;
   width: 276px;
   max-width: 276px;
   padding: 15px 17px;
   box-sizing: border-box;
 }
-.recurring-layout-container.mode-track .recurring-card h2 {
+.recurring-layout-container .recurring-card h2 {
   font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.recurring-layout-container.mode-track .recurring-notes {
+.recurring-layout-container .recurring-notes {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   font-size: 11px;
   margin-top: 6px;
-}
-
-/* 兼容断点：屏幕不足 1024px 时优雅降级 */
-@media (max-width: 1024px) {
-  .recurring-layout-container.mode-split {
-    grid-template-columns: 1fr;
-  }
-  .recurring-layout-container.mode-split .recurring-layer-bottom {
-    position: static;
-  }
-  .recurring-layout-container.mode-split .recurring-list {
-    max-height: none;
-    overflow-y: visible;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  }
 }
 
 .recurring-editor,

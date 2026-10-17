@@ -25,8 +25,6 @@ import {
   AlertCircle,
   LoaderCircle,
   CalendarCheck,
-  Columns2,
-  Rows2,
 } from "lucide-react";
 import {
   addDays,
@@ -65,22 +63,13 @@ export default function RecurringPanel({
   );
   const [stopping, setStopping] = useState<string | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"split" | "track">(() => {
-    const saved = localStorage.getItem("recurring_view_mode");
-    return saved === "track" ? "track" : "split";
-  });
 
   const listRef = useRef<HTMLDivElement>(null);
-
-  const handleViewModeChange = (mode: "split" | "track") => {
-    setViewMode(mode);
-    localStorage.setItem("recurring_view_mode", mode);
-  };
 
   // 通过原生非 passive 事件监听彻底阻止滚轮导致的页面向下滚动，并将垂直滚轮转化为横轨滚动
   useEffect(() => {
     const el = listRef.current;
-    if (!el || viewMode !== "track") return;
+    if (!el) return;
 
     const onWheel = (e: globalThis.WheelEvent) => {
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
@@ -95,7 +84,7 @@ export default function RecurringPanel({
     return () => {
       el.removeEventListener("wheel", onWheel);
     };
-  }, [viewMode, plans]);
+  }, [plans]);
 
   // 滚动时自动添加 is-scrolling 类，滑动停止 900ms 后自动移除并平滑淡出，实现滑动时显示、平常隐形的滚动条
   useEffect(() => {
@@ -117,7 +106,7 @@ export default function RecurringPanel({
       if (timer) window.clearTimeout(timer);
       el.classList.remove("is-scrolling");
     };
-  }, [viewMode, plans]);
+  }, [plans]);
 
   const handleScrollTrack = (direction: "left" | "right") => {
     if (!listRef.current) return;
@@ -224,7 +213,7 @@ export default function RecurringPanel({
           </button>
         </div>
       ) : (
-        <div className={`recurring-layout-container mode-${viewMode}`}>
+        <div className="recurring-layout-container">
           {/* 目标列表 */}
           <section className="recurring-layer-top" aria-label="持久任务有哪些">
             <div className="recurring-layer-header">
@@ -269,63 +258,29 @@ export default function RecurringPanel({
                     : filterTab === "ended"
                       ? `展示已到期或停止的 ${endedPlans.length} 个历史归档目标`
                       : `共 ${plans.length} 个目标（${activePlans.length} 进行中，${endedPlans.length} 已到期/停止）`}
-                  {" · "}
-                  {viewMode === "split"
-                    ? "点击联动右侧打卡墙"
-                    : "点击联动下方打卡墙"}
+                  {" · 点击卡片联动下方打卡墙"}
                 </span>
               </div>
 
               <div className="recurring-view-controls">
-                {viewMode === "track" && (
-                  <div className="track-scroll-arrows">
-                    <button
-                      type="button"
-                      className="track-arrow-btn"
-                      onClick={() => handleScrollTrack("left")}
-                      title="向左滚动目标列表"
-                      aria-label="向左滚动目标列表"
-                    >
-                      <ChevronLeft size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      className="track-arrow-btn"
-                      onClick={() => handleScrollTrack("right")}
-                      title="向右滚动目标列表"
-                      aria-label="向右滚动目标列表"
-                    >
-                      <ChevronRight size={13} />
-                    </button>
-                  </div>
-                )}
-
-                <div
-                  className="recurring-view-switcher"
-                  role="radiogroup"
-                  aria-label="排版视图切换"
-                >
+                <div className="track-scroll-arrows">
                   <button
                     type="button"
-                    className={`view-btn ${viewMode === "split" ? "is-active" : ""}`}
-                    onClick={() => handleViewModeChange("split")}
-                    aria-checked={viewMode === "split"}
-                    role="radio"
-                    title="方案 A：左右双栏（左列表，右打卡墙联动）"
+                    className="track-arrow-btn"
+                    onClick={() => handleScrollTrack("left")}
+                    title="向左滚动目标列表"
+                    aria-label="向左滚动目标列表"
                   >
-                    <Columns2 size={13} />
-                    <span>左右双栏</span>
+                    <ChevronLeft size={13} />
                   </button>
                   <button
                     type="button"
-                    className={`view-btn ${viewMode === "track" ? "is-active" : ""}`}
-                    onClick={() => handleViewModeChange("track")}
-                    aria-checked={viewMode === "track"}
-                    role="radio"
-                    title="方案 B：上下横轨（上方单行横滑，下方全宽打卡墙）"
+                    className="track-arrow-btn"
+                    onClick={() => handleScrollTrack("right")}
+                    title="向右滚动目标列表"
+                    aria-label="向右滚动目标列表"
                   >
-                    <Rows2 size={13} />
-                    <span>上下横轨</span>
+                    <ChevronRight size={13} />
                   </button>
                 </div>
               </div>
