@@ -396,80 +396,37 @@
 .metric-icon.streak-trophy {
   color: #eab308;
 }
-.punch-matrix-scroller {
+/* 打卡墙热力图网格与方块样式 */
+.punch-wall-card .activity-scroller {
   overflow-x: auto;
-  padding: 8px 4px 14px;
+  padding: 8px 4px 16px;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar) transparent;
 }
-.punch-matrix-container {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  min-width: max-content;
+
+.punch-wall-card .activity-calendar {
+  width: fit-content;
+  max-width: 100%;
 }
-.weekday-labels {
+
+.punch-wall-card .heatmap-columns,
+.punch-wall-card .heatmap-months {
+  display: grid;
+  grid-template-columns: repeat(var(--activity-weeks), 18px);
+  gap: 4px;
+}
+
+.punch-wall-card .heatmap-week {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: var(--muted);
-  font-size: 10px;
-  width: 14px;
-  text-align: right;
-  flex-shrink: 0;
-  user-select: none;
+  width: 18px;
 }
-.weekday-month-spacer {
-  height: 16px;
-}
-.weekday-labels span:not(.weekday-month-spacer) {
-  height: 13px;
-  line-height: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-}
-.weeks-track {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.months-header-row {
-  display: flex;
-  gap: 4px;
-  height: 16px;
-  align-items: center;
-}
-.month-label-slot {
-  width: 13px;
-  position: relative;
-  flex-shrink: 0;
-}
-.month-text {
-  position: absolute;
-  left: 0;
-  top: 0;
-  font-size: 10px;
-  color: var(--muted);
-  white-space: nowrap;
-  font-weight: 500;
-  line-height: 16px;
-}
-.heatmap-columns {
-  display: flex;
-  gap: 4px;
-}
-.heatmap-week {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 13px;
-  flex-shrink: 0;
-}
-.heatmap-cell {
+
+.punch-wall-card .heatmap-cell {
   display: block;
-  width: 13px;
-  height: 13px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   margin: 0;
   border-radius: 3px;
@@ -484,73 +441,77 @@
     background-color 0.12s ease;
   outline: none;
 }
-.heatmap-cell.outside-range {
+
+/* 越界方块 */
+.punch-wall-card .heatmap-cell.outside-range {
   background: transparent !important;
-  border-color: transparent !important;
+  border: 0 !important;
   pointer-events: none;
 }
-/* 1. 已完成（做完）：高质感绿色实色色块 */
-.heatmap-cell.completed,
-.heatmap-cell[data-status="completed"] {
+
+/* 1. 做完的：纯正翡翠绿实色方块 */
+.punch-wall-card .heatmap-cell.completed,
+.punch-wall-card .heatmap-cell[data-status="completed"] {
   background: #10b981;
   border-color: #10b981;
   cursor: pointer;
 }
-:root[data-theme="dark"] .heatmap-cell.completed,
-:root[data-theme="dark"] .heatmap-cell[data-status="completed"] {
+:root[data-theme="dark"] .punch-wall-card .heatmap-cell.completed,
+:root[data-theme="dark"] .punch-wall-card .heatmap-cell[data-status="completed"] {
   background: #059669;
   border-color: #059669;
 }
-.heatmap-cell.completed:hover,
-.heatmap-cell[data-status="completed"]:hover {
-  transform: scale(1.3);
+.punch-wall-card .heatmap-cell.completed:hover,
+.punch-wall-card .heatmap-cell[data-status="completed"]:hover {
+  transform: scale(1.22);
   box-shadow: 0 0 0 2px var(--foreground);
   z-index: 3;
 }
-/* 2. 漏打卡（未做完）：纯净红色实色色块 */
-.heatmap-cell.missed,
-.heatmap-cell[data-status="missed"] {
+
+/* 2. 没做完的（漏打卡）：纯正鲜红实色方块 */
+.punch-wall-card .heatmap-cell.missed,
+.punch-wall-card .heatmap-cell[data-status="missed"] {
   background: #ef4444;
   border-color: #ef4444;
   cursor: pointer;
 }
-:root[data-theme="dark"] .heatmap-cell.missed,
-:root[data-theme="dark"] .heatmap-cell[data-status="missed"] {
+:root[data-theme="dark"] .punch-wall-card .heatmap-cell.missed,
+:root[data-theme="dark"] .punch-wall-card .heatmap-cell[data-status="missed"] {
   background: #dc2626;
   border-color: #dc2626;
 }
-.heatmap-cell.missed:hover,
-.heatmap-cell[data-status="missed"]:hover {
-  transform: scale(1.3);
+.punch-wall-card .heatmap-cell.missed:hover,
+.punch-wall-card .heatmap-cell[data-status="missed"]:hover {
+  transform: scale(1.22);
   box-shadow: 0 0 0 2px var(--foreground);
   z-index: 3;
 }
-/* 3. 今日待打卡：突出高亮边框和呼吸灯提醒 */
-.heatmap-cell.pending,
-.heatmap-cell[data-status="pending"] {
+
+/* 3. 今日待打卡：对比高亮边框 */
+.punch-wall-card .heatmap-cell.pending,
+.punch-wall-card .heatmap-cell[data-status="pending"] {
   background: var(--surface);
-  border: 1.5px solid var(--foreground);
+  border: 2px solid var(--foreground);
   cursor: pointer;
 }
-.heatmap-cell.pending:hover,
-.heatmap-cell[data-status="pending"]:hover {
-  transform: scale(1.3);
+.punch-wall-card .heatmap-cell.pending:hover,
+.punch-wall-card .heatmap-cell[data-status="pending"]:hover {
+  transform: scale(1.22);
   box-shadow: 0 0 0 2px var(--foreground);
   z-index: 3;
 }
-.heatmap-cell.is-today {
-  box-shadow: 0 0 0 2px var(--focus-ring);
-}
-/* 4. 未开始（未来日期） */
-.heatmap-cell.upcoming,
-.heatmap-cell[data-status="upcoming"] {
+
+/* 4. 未开始（未来天） */
+.punch-wall-card .heatmap-cell.upcoming,
+.punch-wall-card .heatmap-cell[data-status="upcoming"] {
   background: var(--surface-muted);
   opacity: 0.55;
   cursor: default;
 }
-/* 5. 暂停期 */
-.heatmap-cell.paused,
-.heatmap-cell[data-status="paused"] {
+
+/* 5. 暂停中 */
+.punch-wall-card .heatmap-cell.paused,
+.punch-wall-card .heatmap-cell[data-status="paused"] {
   background: repeating-linear-gradient(
     45deg,
     var(--surface-muted),
@@ -561,8 +522,9 @@
   opacity: 0.65;
   cursor: default;
 }
-/* 6. 更新中动效 */
-.heatmap-cell.is-checking {
+
+/* 6. 更新中脉冲动画 */
+.punch-wall-card .heatmap-cell.is-checking {
   opacity: 0.65;
   animation: heatmap-cell-pulse 0.6s infinite alternate;
 }
@@ -576,10 +538,23 @@
     transform: scale(1.15);
   }
 }
-.heatmap-cell:focus-visible {
+
+/* 键盘可访问聚焦 */
+.punch-wall-card .heatmap-cell:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
   z-index: 4;
+}
+
+/* 月份标尺 */
+.punch-wall-card .heatmap-months {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.punch-wall-card .heatmap-months span {
+  grid-row: 1;
+  white-space: nowrap;
 }
 .punch-tooltip {
   position: fixed;

@@ -4,6 +4,7 @@ import {
   useCallback,
   type FormEvent,
   type MouseEvent,
+  type CSSProperties,
 } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import {
@@ -410,32 +411,26 @@ function PunchInWallSection({
 
     const weeks: {
       weekIndex: number;
-      monthLabel?: string;
       days: (RecurringRecord | null)[];
     }[] = [];
 
-    let lastMonth = -1;
     for (let i = 0; i < allDays.length; i += 7) {
-      const weekDays = allDays.slice(i, i + 7);
-      let monthLabel: string | undefined = undefined;
-      for (const d of weekDays) {
-        if (d) {
-          const m = parseInt(d.date.slice(5, 7), 10);
-          if (m !== lastMonth) {
-            lastMonth = m;
-            monthLabel = `${m}月`;
-            break;
-          }
-        }
-      }
       weeks.push({
         weekIndex: i / 7,
-        monthLabel,
-        days: weekDays,
+        days: allDays.slice(i, i + 7),
       });
     }
     return weeks;
   })();
+
+  const months = calendarWeeks.flatMap((week) => {
+    const day =
+      week.days.find((day) => day?.date.endsWith("-01")) ||
+      week.days.find((day) => day?.date === plan.start);
+    return day
+      ? [{ index: week.weekIndex, label: `${Number(day.date.slice(5, 7))}月` }]
+      : [];
+  });
 
   const completionRate = history
     ? history.passedDays > 0
@@ -589,77 +584,70 @@ function PunchInWallSection({
             </div>
 
             {/* 打卡热力日历网格 */}
-            <div className="punch-matrix-scroller">
-              <div className="punch-matrix-container">
-                {/* 星期标签列 */}
-                <div className="weekday-labels" aria-hidden="true">
-                  <span className="weekday-month-spacer" />
-                  <span>一</span>
-                  <span>二</span>
-                  <span>三</span>
-                  <span>四</span>
-                  <span>五</span>
-                  <span>六</span>
-                  <span>日</span>
-                </div>
-
-                {/* 周列网格 */}
-                <div className="weeks-track">
-                  {/* 月份标头 */}
-                  <div className="months-header-row" aria-hidden="true">
-                    {calendarWeeks.map((week) => (
-                      <div className="month-label-slot" key={week.weekIndex}>
-                        {week.monthLabel && (
-                          <span className="month-text">{week.monthLabel}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* 热力图主体列 */}
-                  <div
-                    className="heatmap-columns"
-                    role="group"
-                    aria-label="按天完成打卡热力图，左右切换周，上下切换天"
-                  >
-                    {calendarWeeks.map((week) => (
-                      <div className="heatmap-week" key={week.weekIndex}>
-                        {week.days.map((day, dayIndex) => {
-                          if (!day) {
-                            return (
-                              <span
-                                key={`outside-${dayIndex}`}
-                                className="heatmap-cell outside-range"
-                                aria-hidden="true"
-                              />
-                            );
-                          }
-
-                          const isToday = day.date === todayDate;
-                          const isChecking = checkingDate === day.date;
-                          const isClickable =
-                            day.status === "completed" ||
-                            day.status === "missed" ||
-                            day.status === "pending";
-
+            <div className="activity-scroller">
+              <div
+                className="activity-calendar"
+                style={
+                  {
+                    "--activity-weeks": calendarWeeks.length,
+                  } as CSSProperties
+                }
+              >
+                <div
+                  className="heatmap-columns"
+                  role="group"
+                  aria-label="按天完成热力图，左右方向键切换周，上下方向键切换天"
+                >
+                  {calendarWeeks.map((week) => (
+                    <div className="heatmap-week" key={week.weekIndex}>
+                      {week.days.map((day, dayIndex) => {
+                        if (!day) {
                           return (
-                            <button
-                              key={day.date}
-                              type="button"
-                              className={`heatmap-cell ${day.status} ${isToday ? "is-today" : ""} ${isChecking ? "is-checking" : ""}`}
-                              data-status={day.status}
-                              data-today={isToday ? "true" : undefined}
-                              disabled={!isClickable || isChecking}
-                              onClick={() => void handleCheckin(day)}
-                              onMouseEnter={(e) => handleCellMouseEnter(e, day)}
-                              onMouseLeave={handleCellMouseLeave}
-                              aria-label={`${day.date} ${statusName(day.status)}`}
+                            <span
+                              key={`outside-${dayIndex}`}
+                              className="heatmap-cell outside-range"
+                              aria-hidden="true"
                             />
                           );
-                        })}
-                      </div>
-                    ))}
-                  </div>
+                        }
+
+                        const isToday = day.date === todayDate;
+                        const isChecking = checkingDate === day.date;
+                        const isClickable =
+                          day.status === "completed" ||
+                          day.status === "missed" ||
+                          day.status === "pending";
+
+                        return (
+                          <button
+                            key={day.date}
+                            type="button"
+                            className={`heatmap-cell ${day.status} ${isToday ? "is-today" : ""} ${isChecking ? "is-checking" : ""}`}
+                            data-status={day.status}
+                            data-today={isToday ? "true" : undefined}
+                            tabIndex={-1}
+                            disabled={!isClickable || isChecking}
+                            onClick={() => void handleCheckin(day)}
+                            onMouseEnter={(e) => handleCellMouseEnter(e, day)}
+                            onMouseLeave={handleCellMouseLeave}
+                            aria-label={`${day.date}，${statusName(day.status)}`}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+                <div className="heatmap-months" aria-hidden="true">
+                  {months.map((month) => (
+                    <span
+                      key={month.index}
+                      style={{
+                        gridColumn: `${month.index + 1} / span ${Math.min(2, calendarWeeks.length - month.index)}`,
+                      }}
+                    >
+                      {month.label}
+                    </span>
+                  ))}
                 </div>
               </div>
             </div>
