@@ -1051,6 +1051,12 @@ summary {
 .task-row.dragging {
   opacity: 0.4;
 }
+.task-row.is-updating {
+  opacity: 0.58;
+  pointer-events: none;
+  cursor: wait;
+  transition: opacity 0.18s ease;
+}
 .task-grip {
   display: flex;
   align-items: center;
@@ -1186,8 +1192,17 @@ summary {
   height: 25px;
 }
 .task-row:hover .task-actions,
-.task-row:focus-within .task-actions {
+.task-row:focus-within .task-actions,
+.task-row.is-updating .task-actions {
   opacity: 1;
+}
+.task-updating-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 25px;
+  color: var(--muted);
 }
 .selected-star {
   color: var(--muted);

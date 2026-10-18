@@ -682,6 +682,7 @@ function TaskEditor({
 function TaskRow({
   task,
   busy,
+  isUpdating,
   onToggle,
   onFocus,
   onEdit,
@@ -696,6 +697,7 @@ function TaskRow({
 }: {
   task: Task;
   busy: boolean;
+  isUpdating?: boolean;
   onToggle: () => void;
   onFocus: () => void;
   onEdit: () => void;
@@ -710,7 +712,7 @@ function TaskRow({
 }) {
   return (
     <div
-      className={`task-row ${task.done ? "done" : ""} ${task.priority ? "priority" : ""} ${dragging ? "dragging" : ""}`}
+      className={`task-row ${task.done ? "done" : ""} ${task.priority ? "priority" : ""} ${dragging ? "dragging" : ""} ${isUpdating ? "is-updating" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -794,43 +796,51 @@ function TaskRow({
         </div>
       </div>
       <div className="task-actions">
-        {task.bucket === "today" && !task.done && (
-          <button
-            className={`icon-button ${task.priority ? "selected-star" : ""}`}
-            aria-label={`${task.priority ? "取消优先" : "设为优先"}：${task.title}`}
-            disabled={busy}
-            onClick={onFocus}
-          >
-            <Star size={15} fill={task.priority ? "currentColor" : "none"} />
-          </button>
+        {isUpdating ? (
+          <span className="task-updating-spinner" title="正在同步变更…">
+            <LoaderCircle className="spin" size={14} />
+          </span>
+        ) : (
+          <>
+            {task.bucket === "today" && !task.done && (
+              <button
+                className={`icon-button ${task.priority ? "selected-star" : ""}`}
+                aria-label={`${task.priority ? "取消优先" : "设为优先"}：${task.title}`}
+                disabled={busy}
+                onClick={onFocus}
+              >
+                <Star size={15} fill={task.priority ? "currentColor" : "none"} />
+              </button>
+            )}
+            {!task.done && onCancel && (
+              <button
+                className="icon-button cancel-hover"
+                aria-label={`取消计划：${task.title}`}
+                title="取消计划"
+                disabled={busy}
+                onClick={onCancel}
+              >
+                <CalendarX size={14} />
+              </button>
+            )}
+            <button
+              className="icon-button"
+              aria-label={`编辑：${task.title}`}
+              disabled={busy}
+              onClick={onEdit}
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              className="icon-button danger-hover"
+              aria-label={`移除：${task.title}`}
+              disabled={busy}
+              onClick={onDelete}
+            >
+              <Trash2 size={14} />
+            </button>
+          </>
         )}
-        {!task.done && onCancel && (
-          <button
-            className="icon-button cancel-hover"
-            aria-label={`取消计划：${task.title}`}
-            title="取消计划"
-            disabled={busy}
-            onClick={onCancel}
-          >
-            <CalendarX size={14} />
-          </button>
-        )}
-        <button
-          className="icon-button"
-          aria-label={`编辑：${task.title}`}
-          disabled={busy}
-          onClick={onEdit}
-        >
-          <Pencil size={14} />
-        </button>
-        <button
-          className="icon-button danger-hover"
-          aria-label={`移除：${task.title}`}
-          disabled={busy}
-          onClick={onDelete}
-        >
-          <Trash2 size={14} />
-        </button>
       </div>
     </div>
   );
@@ -1393,6 +1403,7 @@ export default function App() {
         key={task.id}
         task={task}
         busy={busy || isTaskUpdating}
+        isUpdating={isTaskUpdating}
         onToggle={() =>
           void update(
             task,

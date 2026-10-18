@@ -355,8 +355,17 @@ func (s *Server) board(c *gin.Context) {
 				carryovers = append(carryovers, task)
 			}
 		case "three":
+			createdDate := task.CreatedAt
+			if len(createdDate) >= 10 {
+				createdDate = createdDate[:10]
+			}
+			updatedDate := task.UpdatedAt
+			if len(updatedDate) >= 10 {
+				updatedDate = updatedDate[:10]
+			}
+			activeToday := createdDate == date || updatedDate == date
 			cycleEnd := addDays(task.Date, 2)
-			if date == cycleEnd {
+			if !activeToday && date == cycleEnd {
 				if !task.Done {
 					promoted := task
 					promoted.Bucket = "today"
@@ -365,9 +374,7 @@ func (s *Server) board(c *gin.Context) {
 				} else {
 					buckets["three"] = append(buckets["three"], task)
 				}
-			} else if task.Date <= date && date < cycleEnd {
-				buckets["three"] = append(buckets["three"], task)
-			} else if task.Date >= bounds["three"].Start && task.Date <= bounds["three"].End {
+			} else if (task.Date <= date && date <= cycleEnd) || (task.Date >= bounds["three"].Start && task.Date <= bounds["three"].End) {
 				buckets["three"] = append(buckets["three"], task)
 			} else if date > cycleEnd && !task.Done && task.RecurringID == "" {
 				carryovers = append(carryovers, task)
@@ -377,9 +384,14 @@ func (s *Server) board(c *gin.Context) {
 			if len(createdDate) >= 10 {
 				createdDate = createdDate[:10]
 			}
+			updatedDate := task.UpdatedAt
+			if len(updatedDate) >= 10 {
+				updatedDate = updatedDate[:10]
+			}
+			activeToday := createdDate == date || updatedDate == date
 			friday := addDays(task.Date, 4)
 			sunday := addDays(task.Date, 6)
-			if date == sunday && (createdDate < sunday || date > createdDate) {
+			if !activeToday && date == sunday && (createdDate < sunday || date > createdDate) {
 				if !task.Done {
 					promoted := task
 					promoted.Bucket = "today"
@@ -388,7 +400,7 @@ func (s *Server) board(c *gin.Context) {
 				} else {
 					buckets["week"] = append(buckets["week"], task)
 				}
-			} else if date >= friday && date < sunday && (createdDate < friday || date > createdDate) {
+			} else if !activeToday && date >= friday && date < sunday && (createdDate < friday || date > createdDate) {
 				if !task.Done {
 					promoted := task
 					promoted.Bucket = "three"
@@ -403,9 +415,18 @@ func (s *Server) board(c *gin.Context) {
 				carryovers = append(carryovers, task)
 			}
 		case "month":
+			createdDate := task.CreatedAt
+			if len(createdDate) >= 10 {
+				createdDate = createdDate[:10]
+			}
+			updatedDate := task.UpdatedAt
+			if len(updatedDate) >= 10 {
+				updatedDate = updatedDate[:10]
+			}
+			activeToday := createdDate == date || updatedDate == date
 			monthEnd := lastDayOfMonth(task.Date)
 			sprintStart := addDays(monthEnd, -6)
-			if date >= sprintStart && date <= monthEnd {
+			if !activeToday && date >= sprintStart && date <= monthEnd {
 				if !task.Done {
 					promoted := task
 					promoted.Bucket = "week"

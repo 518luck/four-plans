@@ -1103,9 +1103,15 @@ async function api(request: Request, env: Env): Promise<Response> {
         }
         case "week": {
           const createdDate = task.createdAt.slice(0, 10);
+          const updatedDate = task.updatedAt.slice(0, 10);
+          const activeToday = createdDate === date || updatedDate === date;
           const friday = addDays(task.date, 4);
           const sunday = addDays(task.date, 6);
-          if (date === sunday && (createdDate < sunday || date > createdDate)) {
+          if (
+            !activeToday &&
+            date === sunday &&
+            (createdDate < sunday || date > createdDate)
+          ) {
             if (!task.done) {
               buckets.today.push({
                 ...task,
@@ -1116,6 +1122,7 @@ async function api(request: Request, env: Env): Promise<Response> {
               buckets.week.push(task);
             }
           } else if (
+            !activeToday &&
             date >= friday &&
             date < sunday &&
             (createdDate < friday || date > createdDate)
@@ -1140,9 +1147,12 @@ async function api(request: Request, env: Env): Promise<Response> {
           break;
         }
         case "month": {
+          const createdDate = task.createdAt.slice(0, 10);
+          const updatedDate = task.updatedAt.slice(0, 10);
+          const activeToday = createdDate === date || updatedDate === date;
           const monthEnd = lastDayOfMonth(task.date);
           const sprintStart = addDays(monthEnd, -6);
-          if (date >= sprintStart && date <= monthEnd) {
+          if (!activeToday && date >= sprintStart && date <= monthEnd) {
             if (!task.done) {
               buckets.week.push({
                 ...task,
