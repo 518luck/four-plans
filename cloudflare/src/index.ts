@@ -1109,22 +1109,8 @@ async function api(request: Request, env: Env): Promise<Response> {
           const sunday = addDays(task.date, 6);
           if (
             !activeToday &&
-            date === sunday &&
-            (createdDate < sunday || date > createdDate)
-          ) {
-            if (!task.done) {
-              buckets.today.push({
-                ...task,
-                bucket: "today",
-                date,
-              });
-            } else {
-              buckets.week.push(task);
-            }
-          } else if (
-            !activeToday &&
             date >= friday &&
-            date < sunday &&
+            date <= sunday &&
             (createdDate < friday || date > createdDate)
           ) {
             if (!task.done) {

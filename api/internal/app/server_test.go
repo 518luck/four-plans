@@ -241,6 +241,23 @@ func TestAutoPromoteCascadingPipeline(t *testing.T) {
 		t.Fatal("week task must promote to three on Friday (after 4 days)")
 	}
 
+	// 周日 10-18（周日最后一天）：周计划严格留在三日计划窗口中，绝不越级跳入今日计划
+	bSun := f.board(t, "2026-10-18")
+	foundInThreeSun := false
+	for _, tsk := range bSun.Buckets["three"] {
+		if tsk.ID == weekTask.ID {
+			foundInThreeSun = true
+		}
+	}
+	if !foundInThreeSun {
+		t.Fatal("week task must stay in three bucket on Sunday without skipping levels to today")
+	}
+	for _, tsk := range bSun.Buckets["today"] {
+		if tsk.ID == weekTask.ID {
+			t.Fatal("week task must not skip level directly into today bucket on Sunday")
+		}
+	}
+
 	// 3. 月计划在月末前 7 天（10-25）自动移入周计划
 	monthTask := f.create(t, "month", "2026-10-01", "月度大目标", false)
 	// 10-24（月末前 8 天）：仍在月计划
@@ -317,7 +334,6 @@ func TestPromotedTaskCanBecomeTodayFocus(t *testing.T) {
 		days   int
 	}{
 		{"three", "2026-10-13", "2026-10-15", 2},
-		{"week", "2026-10-12", "2026-10-18", 5},
 	} {
 		t.Run(item.bucket, func(t *testing.T) {
 			f := newFixture(t)

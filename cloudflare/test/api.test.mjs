@@ -609,6 +609,19 @@ test("promoted tasks can become today's priority through displayed bucket and da
   assert.equal(task.date, "2026-10-13");
 });
 
+test("week tasks promote strictly to three bucket over the weekend without skipping to today", async (t) => {
+  const f = await fixture(t);
+  await f.setup();
+  const weekTask = await f.create("week", "2026-10-12", "周末收尾周目标");
+  // 模拟时间推进到周日 10-18
+  await f.now("2026-10-18T10:00:00Z");
+  const b = await f.board("2026-10-18");
+  const inThree = b.buckets.three.find((v) => v.id === weekTask.id);
+  const inToday = b.buckets.today.find((v) => v.id === weekTask.id);
+  assert.ok(inThree, "week task must promote to three bucket on Sunday");
+  assert.equal(inToday, undefined, "week task must not skip level directly into today on Sunday");
+});
+
 test("checkin uses the canonical occurrence through generation, moving, trash and purge", async (t) => {
   const f = await fixture(t);
   await f.setup();

@@ -391,16 +391,7 @@ func (s *Server) board(c *gin.Context) {
 			activeToday := createdDate == date || updatedDate == date
 			friday := addDays(task.Date, 4)
 			sunday := addDays(task.Date, 6)
-			if !activeToday && date == sunday && (createdDate < sunday || date > createdDate) {
-				if !task.Done {
-					promoted := task
-					promoted.Bucket = "today"
-					promoted.Date = date
-					buckets["today"] = append(buckets["today"], promoted)
-				} else {
-					buckets["week"] = append(buckets["week"], task)
-				}
-			} else if !activeToday && date >= friday && date < sunday && (createdDate < friday || date > createdDate) {
+			if !activeToday && date >= friday && date <= sunday && (createdDate < friday || date > createdDate) {
 				if !task.Done {
 					promoted := task
 					promoted.Bucket = "three"
