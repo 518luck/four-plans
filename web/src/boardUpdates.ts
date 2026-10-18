@@ -95,7 +95,8 @@ export class BoardUpdates {
       ((pending.change.bucket !== undefined &&
         pending.change.bucket !== pending.task.bucket) ||
         (pending.change.date !== undefined &&
-          pending.change.date !== pending.task.date))
+          pending.change.date !== pending.task.date) ||
+        pending.change.cancelledAt !== undefined)
     )
       return;
     // Preserve the displayed projection until the authoritative board is read.
@@ -117,11 +118,12 @@ export class BoardUpdates {
     if (!result) return null;
     for (const { task, change, date } of this.pending.values()) {
       if (date !== result.date) continue;
-      // Date/bucket changes may move tasks outside the visible ranges or invoke
-      // automatic promotion. Keep their placement authoritative, without guessing.
+      // Date/bucket/cancellation changes may move tasks outside visible ranges or
+      // into different tabs. Keep their placement authoritative, without guessing.
       if (
         (change.bucket !== undefined && change.bucket !== task.bucket) ||
-        (change.date !== undefined && change.date !== task.date)
+        (change.date !== undefined && change.date !== task.date) ||
+        change.cancelledAt !== undefined
       )
         continue;
       result = applyUpdate(result, task.id, change);

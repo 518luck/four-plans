@@ -149,17 +149,21 @@ test("canonical PATCH buckets cannot corrupt a displayed automatic promotion", (
   assert.equal(updates.snapshot().buckets.three[0].done, true);
 });
 
-test("cancelling and rolling back a task restores its original list and statistics", () => {
+test("cancelling a plan avoids optimistic updates until confirmed by the server", () => {
   const a = task("a");
   const updates = fixture([a]);
   updates.begin(a, { cancelledAt: `${date}T02:00:00Z` });
-  assert.equal(updates.snapshot().buckets.today.length, 0);
-  assert.equal(updates.snapshot().cancelled.length, 1);
-  assert.equal(updates.snapshot().statistics.totalPlans, 0);
-  updates.finish("a");
   assert.equal(updates.snapshot().buckets.today.length, 1);
   assert.equal(updates.snapshot().cancelled.length, 0);
   assert.equal(updates.snapshot().statistics.totalPlans, 1);
+  const cancelled = { ...a, cancelledAt: `${date}T02:00:00Z`, version: 2 };
+  updates.finish("a", cancelled);
+  assert.equal(updates.snapshot().buckets.today.length, 1);
+  const authoritative = board([]);
+  authoritative.cancelled = [cancelled];
+  updates.replace(authoritative);
+  assert.equal(updates.snapshot().buckets.today.length, 0);
+  assert.equal(updates.snapshot().cancelled.length, 1);
 });
 
 test("a failed priority change preserves the prior focus without mutating confirmed data", () => {
