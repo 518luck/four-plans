@@ -123,7 +123,12 @@ export default function RecurringPanel({
   );
 
   const activePlans = useMemo(
-    () => plans?.filter((p) => !isPlanEnded(p)) || [],
+    () => plans?.filter((p) => !isPlanEnded(p) && p.status !== "paused") || [],
+    [plans, isPlanEnded],
+  );
+
+  const pausedPlans = useMemo(
+    () => plans?.filter((p) => !isPlanEnded(p) && p.status === "paused") || [],
     [plans, isPlanEnded],
   );
 
@@ -132,23 +137,24 @@ export default function RecurringPanel({
     [plans, isPlanEnded],
   );
 
-  const [filterTab, setFilterTab] = useState<"all" | "active" | "ended">("all");
+  const [filterTab, setFilterTab] = useState<
+    "all" | "active" | "paused" | "ended"
+  >("all");
 
   const filteredPlans = useMemo(() => {
     if (filterTab === "active") return activePlans;
+    if (filterTab === "paused") return pausedPlans;
     if (filterTab === "ended") return endedPlans;
-    // 全部展示时：进行中的活跃目标优先排在前面，已结束的历史目标排在后面
-    return [...activePlans, ...endedPlans];
-  }, [filterTab, activePlans, endedPlans]);
+    return [...activePlans, ...pausedPlans, ...endedPlans];
+  }, [filterTab, activePlans, pausedPlans, endedPlans]);
 
   // 智能默认选中：优先选中用户点击的目标；若未指定，优先选中第一个进行中的活跃目标，绝不默认选中已结束目标
   const effectiveSelectedPlan =
     plans?.find((p) => p.id === selectedPlanId) ||
-    (activePlans.length > 0
-      ? activePlans[0]
-      : plans && plans.length > 0
-        ? plans[0]
-        : null);
+    activePlans[0] ||
+    pausedPlans[0] ||
+    endedPlans[0] ||
+    null;
 
   const statusLabel = (plan: RecurringPlan) => {
     if (plan.end < date) return "已到期";
@@ -234,6 +240,14 @@ export default function RecurringPanel({
                       进行中{" "}
                       <span className="tab-count">{activePlans.length}</span>
                     </button>
+                    <button
+                      type="button"
+                      className={`filter-tab ${filterTab === "paused" ? "is-active" : ""}`}
+                      onClick={() => setFilterTab("paused")}
+                    >
+                      已暂停{" "}
+                      <span className="tab-count">{pausedPlans.length}</span>
+                    </button>
                     {endedPlans.length > 0 && (
                       <button
                         type="button"
@@ -249,9 +263,11 @@ export default function RecurringPanel({
                 <span className="layer-subtitle">
                   {filterTab === "active"
                     ? `展示进行中的 ${activePlans.length} 个目标`
-                    : filterTab === "ended"
-                      ? `展示已到期或停止的 ${endedPlans.length} 个历史归档目标`
-                      : `共 ${plans.length} 个目标（${activePlans.length} 进行中，${endedPlans.length} 已到期/停止）`}
+                    : filterTab === "paused"
+                      ? `展示已暂停的 ${pausedPlans.length} 个目标，暂停期间不生成每日任务`
+                      : filterTab === "ended"
+                        ? `展示已到期或停止的 ${endedPlans.length} 个历史归档目标`
+                        : `共 ${plans.length} 个目标（${activePlans.length} 进行中，${pausedPlans.length} 已暂停，${endedPlans.length} 已到期/停止）`}
                   {" · 点击卡片联动下方打卡墙"}
                 </span>
               </div>
@@ -281,6 +297,9 @@ export default function RecurringPanel({
             </div>
 
             <div ref={listRef} className="recurring-list">
+              {filteredPlans.length === 0 && (
+                <p className="recurring-filter-empty">当前分类暂无目标</p>
+              )}
               {filteredPlans.map((plan) => {
                 const isSelected = effectiveSelectedPlan?.id === plan.id;
                 const isEnded = isPlanEnded(plan);
@@ -339,6 +358,13 @@ export default function RecurringPanel({
 
                     {plan.notes && (
                       <p className="recurring-notes">{plan.notes}</p>
+                    )}
+                    {!isEnded && plan.status === "paused" && (
+                      <p className="recurring-schedule-hint">
+                        {plan.effectiveDate > date
+                          ? "今天的任务保留，明日起暂停生成。"
+                          : "暂停期间不生成今日任务，恢复后立即继续。"}
+                      </p>
                     )}
 
                     <div className="recurring-dates">
@@ -401,6 +427,11 @@ export default function RecurringPanel({
                       {!isEnded && plan.end >= date && (
                         <button
                           disabled={busy}
+                          title={
+                            plan.status === "paused"
+                              ? "立即恢复，并补齐今天的每日任务"
+                              : "从明天起暂停生成每日任务"
+                          }
                           onClick={(e) => {
                             e.stopPropagation();
                             void onSave(plan, {

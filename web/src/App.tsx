@@ -1663,7 +1663,11 @@ export default function App() {
                       ),
                     },
                   ),
-                plan ? "目标已更新，明日起生效" : "持久目标已创建",
+                plan
+                  ? input.status === "active"
+                    ? "目标已恢复，立即生效"
+                    : "目标已更新，明日起生效"
+                  : "持久目标已创建",
               )
             }
           />

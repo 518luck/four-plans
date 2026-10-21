@@ -322,10 +322,12 @@ test("daily goal catch-up, next-day revisions, pause/resume, tombstones and conc
   });
   assert.equal(r.status, 200);
   goal = await r.json();
+  assert.equal(goal.effectiveDate, "2026-10-19");
+  assert.equal((await f.board("2026-10-19")).buckets.today.length, 1);
   await f.now("2026-10-20T01:00:00Z");
-  assert.equal((await f.board("2026-10-20")).statistics.totalPlans, 4);
+  assert.equal((await f.board("2026-10-20")).statistics.totalPlans, 5);
   await f.now("2026-10-22T01:00:00Z");
-  assert.equal((await f.board("2026-10-22")).statistics.totalPlans, 4);
+  assert.equal((await f.board("2026-10-22")).statistics.totalPlans, 5);
   assert.equal(
     (
       await f.send("PATCH", "/api/recurring/" + goal.id, {
@@ -336,6 +338,195 @@ test("daily goal catch-up, next-day revisions, pause/resume, tombstones and conc
     409,
   );
 });
+test("resume materializes today once, keeps paused history and preserves tomorrow's edits", async (t) => {
+  const f = await fixture(t);
+  await f.setup();
+  let r = await f.send("POST", "/api/recurring", {
+    title: "英语学习",
+    start: "2026-10-13",
+    end: "2026-10-30",
+  });
+  let plan = await r.json();
+  const update = async (input) => {
+    const response = await f.send("PATCH", `/api/recurring/${plan.id}`, {
+      version: plan.version,
+      ...input,
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    plan = await response.json();
+  };
+  await update({ status: "paused" });
+  await f.now("2026-10-15T16:00:00Z");
+  assert.equal((await f.board("2026-10-16")).buckets.today.length, 0);
+  await update({ title: "明天的新目标" });
+  const responses = await Promise.all(
+    Array.from({ length: 5 }, () =>
+      f.send("PATCH", `/api/recurring/${plan.id}`, {
+        version: plan.version,
+        status: "active",
+      }),
+    ),
+  );
+  assert.deepEqual(
+    responses.map((v) => v.status).sort(),
+    [200, 409, 409, 409, 409],
+  );
+  plan = await responses.find((v) => v.status === 200).json();
+  assert.equal(plan.effectiveDate, "2026-10-16");
+  const count = await f.db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM tasks WHERE recurring_id=? AND scheduled_date=?",
+    )
+    .bind(plan.id, "2026-10-16")
+    .first();
+  assert.equal(count.n, 1);
+  let b = await f.board("2026-10-16");
+  assert.equal(b.statistics.totalPlans, 2);
+  const task = b.buckets.today[0];
+  assert.equal(task.title, "英语学习");
+  assert.equal(
+    (
+      await f.send("POST", `/api/recurring/${plan.id}/checkin`, {
+        date: "2026-10-16",
+        done: true,
+      })
+    ).status,
+    200,
+  );
+  await update({ status: "paused" });
+  await update({ status: "active" });
+  b = await f.board("2026-10-16");
+  assert.equal(b.buckets.today.length, 1);
+  assert.equal(b.buckets.today[0].id, task.id);
+  assert.equal(b.buckets.today[0].done, true);
+  const history = await (
+    await f.send("GET", `/api/recurring/${plan.id}/records`)
+  ).json();
+  assert.equal(
+    history.records.find((v) => v.date === "2026-10-14").status,
+    "paused",
+  );
+  assert.equal(
+    history.records.find((v) => v.date === "2026-10-15").status,
+    "paused",
+  );
+  assert.equal(
+    history.records.find((v) => v.date === "2026-10-16").status,
+    "completed",
+  );
+  await f.now("2026-10-17T01:00:00Z");
+  b = await f.board("2026-10-17");
+  assert.equal(b.buckets.today.length, 1);
+  assert.equal(b.buckets.today[0].title, "明天的新目标");
+  assert.equal(b.statistics.totalPlans, 3);
+});
+
+test("resume preserves deleted occurrences and respects a future start", async (t) => {
+  const f = await fixture(t);
+  await f.setup();
+  for (const purge of [false, true]) {
+    let response = await f.send("POST", "/api/recurring", {
+      title: "已删除的每日任务",
+      start: "2026-10-13",
+      end: "2026-10-30",
+    });
+    let plan = await response.json();
+    const task = (await f.board()).buckets.today.find(
+      (v) => v.recurringId === plan.id,
+    );
+    assert.equal(
+      (
+        await f.send("DELETE", `/api/tasks/${task.id}`, {
+          version: task.version,
+        })
+      ).status,
+      204,
+    );
+    if (purge) {
+      const trashed = (await f.board()).trash.find((v) => v.id === task.id);
+      assert.equal(
+        (
+          await f.send("DELETE", `/api/trash/${task.id}`, {
+            version: trashed.version,
+          })
+        ).status,
+        204,
+      );
+    }
+    for (const status of ["paused", "active"]) {
+      response = await f.send("PATCH", `/api/recurring/${plan.id}`, {
+        version: plan.version,
+        status,
+      });
+      assert.equal(response.status, 200);
+      plan = await response.json();
+    }
+    assert.equal(
+      (await f.board()).buckets.today.some((v) => v.recurringId === plan.id),
+      false,
+    );
+  }
+  let response = await f.send("POST", "/api/recurring", {
+    title: "未来开始",
+    start: "2026-10-15",
+    end: "2026-10-30",
+  });
+  let plan = await response.json();
+  for (const status of ["paused", "active"]) {
+    response = await f.send("PATCH", `/api/recurring/${plan.id}`, {
+      version: plan.version,
+      status,
+    });
+    assert.equal(response.status, 200);
+    plan = await response.json();
+  }
+  assert.equal((await f.board()).statistics.totalPlans, 0);
+  await f.now("2026-10-15T01:00:00Z");
+  assert.equal((await f.board("2026-10-15")).buckets.today.length, 3);
+});
+
+test("legacy next-day resumes can activate today while combined content edits wait until tomorrow", async (t) => {
+  const f = await fixture(t);
+  await f.setup();
+  let r = await f.send("POST", "/api/recurring", {
+    title: "英语学习",
+    start: "2026-10-13",
+    end: "2026-10-30",
+  });
+  let plan = await r.json();
+  r = await f.send("PATCH", `/api/recurring/${plan.id}`, {
+    version: plan.version,
+    status: "paused",
+  });
+  assert.equal(r.status, 200);
+  plan = await r.json();
+  await f.now("2026-10-15T01:00:00Z");
+  await f.db
+    .prepare(
+      "UPDATE recurring_plans SET status='active',effective_date='2026-10-16',version=version+1 WHERE id=?",
+    )
+    .bind(plan.id)
+    .run();
+  r = await f.send("PATCH", `/api/recurring/${plan.id}`, {
+    version: plan.version + 1,
+    status: "active",
+    title: "恢复时修改的目标",
+  });
+  assert.equal(r.status, 200, await r.clone().text());
+  plan = await r.json();
+  assert.equal(plan.effectiveDate, "2026-10-15");
+  assert.equal(
+    (await f.board("2026-10-15")).buckets.today[0].title,
+    "英语学习",
+  );
+  assert.equal((await f.board("2026-10-14")).buckets.today.length, 0);
+  await f.now("2026-10-16T01:00:00Z");
+  assert.equal(
+    (await f.board("2026-10-16")).buckets.today[0].title,
+    "恢复时修改的目标",
+  );
+});
+
 test("historic leap-year statistics, resource truth and cached quote fallback", async (t) => {
   const f = await fixture(t);
   await f.setup();
@@ -619,7 +810,11 @@ test("week tasks promote strictly to three bucket over the weekend without skipp
   const inThree = b.buckets.three.find((v) => v.id === weekTask.id);
   const inToday = b.buckets.today.find((v) => v.id === weekTask.id);
   assert.ok(inThree, "week task must promote to three bucket on Sunday");
-  assert.equal(inToday, undefined, "week task must not skip level directly into today on Sunday");
+  assert.equal(
+    inToday,
+    undefined,
+    "week task must not skip level directly into today on Sunday",
+  );
 });
 
 test("checkin uses the canonical occurrence through generation, moving, trash and purge", async (t) => {
@@ -763,6 +958,15 @@ test("inactive revisions reject checkins and history preserves the stopped final
     status: "active",
   });
   plan = await r.json();
+  assert.equal(
+    (
+      await f.send("POST", `/api/recurring/${plan.id}/checkin`, {
+        date: "2026-10-14",
+        done: true,
+      })
+    ).status,
+    200,
+  );
   await f.now("2026-10-15T01:00:00Z");
   assert.equal(
     (
@@ -786,8 +990,8 @@ test("inactive revisions reject checkins and history preserves the stopped final
     ["2026-10-13", "2026-10-14", "2026-10-15"],
   );
   assert.equal(history.missedDays, 0);
-  assert.equal(history.currentStreak, 2);
-  assert.equal(history.longestStreak, 2);
+  assert.equal(history.currentStreak, 3);
+  assert.equal(history.longestStreak, 3);
   assert.equal(
     (
       await f.send("POST", `/api/recurring/${plan.id}/checkin`, {
@@ -801,7 +1005,7 @@ test("inactive revisions reject checkins and history preserves the stopped final
     .prepare("SELECT COUNT(*) AS n FROM tasks WHERE recurring_id=?")
     .bind(plan.id)
     .first();
-  assert.equal(counts.n, 2);
+  assert.equal(counts.n, 3);
 });
 
 test("extending an expired goal leaves inactive dates outside its history", async (t) => {

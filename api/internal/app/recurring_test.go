@@ -78,8 +78,8 @@ func TestRecurringRevisionsPauseStopAndConflict(t *testing.T) {
 	r = f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": "active"})
 	expect(t, r, 200)
 	p = decode[RecurringPlan](t, r)
-	if len(f.board(t, "2026-10-19").Buckets["today"]) != 0 {
-		t.Fatal("resuming must start tomorrow")
+	if p.EffectiveDate != "2026-10-19" || len(f.board(t, "2026-10-19").Buckets["today"]) != 1 {
+		t.Fatal("resuming must generate today's task immediately")
 	}
 	f.advance(1)
 	if len(f.board(t, "2026-10-20").Buckets["today"]) != 1 {
@@ -89,7 +89,7 @@ func TestRecurringRevisionsPauseStopAndConflict(t *testing.T) {
 	expect(t, r, 200)
 	p = decode[RecurringPlan](t, r)
 	f.advance(2)
-	if f.board(t, "2026-10-22").Statistics.TotalPlans != 5 {
+	if f.board(t, "2026-10-22").Statistics.TotalPlans != 6 {
 		t.Fatal("stopping erased history or generated more")
 	}
 	expect(t, f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": "active"}), 409)
@@ -132,6 +132,125 @@ func TestRecurringDeletionNeverRegeneratesAndConcurrentReads(t *testing.T) {
 	}
 	if f.board(t, "2026-10-15").Statistics.TotalPlans != 2 {
 		t.Fatal("concurrent refresh duplicated occurrences")
+	}
+}
+
+func TestRecurringResumePreservesPausedHistoryAndPendingEdits(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	p := f.recurring(t, "2026-10-13", "2026-10-30")
+	update := func(input map[string]any) {
+		t.Helper()
+		input["version"] = p.Version
+		r := f.send(t, "PATCH", "/api/recurring/"+p.ID, input)
+		expect(t, r, 200)
+		p = decode[RecurringPlan](t, r)
+	}
+	update(map[string]any{"status": "paused"})
+	f.advance(3)
+	if len(f.board(t, "2026-10-16").Buckets["today"]) != 0 {
+		t.Fatal("paused plan generated a task")
+	}
+	update(map[string]any{"title": "明天的新目标"})
+	update(map[string]any{"status": "active"})
+	var count int
+	if err := f.server.db.QueryRow("SELECT COUNT(*) FROM tasks WHERE recurring_id=? AND scheduled_date='2026-10-16'", p.ID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("resume must create today's task before returning: count=%d err=%v", count, err)
+	}
+	b := f.board(t, "2026-10-16")
+	if p.EffectiveDate != "2026-10-16" || len(b.Buckets["today"]) != 1 || b.Buckets["today"][0].Title != "每天读书" || b.Statistics.TotalPlans != 2 {
+		t.Fatalf("resume changed today's content or failed to materialize it: %+v", b)
+	}
+	first := b.Buckets["today"][0]
+	expect(t, f.send(t, "PATCH", "/api/tasks/"+first.ID, map[string]any{"version": first.Version, "done": true}), 200)
+	update(map[string]any{"status": "paused"})
+	update(map[string]any{"status": "active"})
+	b = f.board(t, "2026-10-16")
+	if len(b.Buckets["today"]) != 1 || b.Buckets["today"][0].ID != first.ID || !b.Buckets["today"][0].Done {
+		t.Fatal("same-day pause/resume duplicated or reset the completed task")
+	}
+	history := decode[RecurringHistory](t, f.send(t, "GET", "/api/recurring/"+p.ID+"/records", nil))
+	if history.Records[1].Status != "paused" || history.Records[2].Status != "paused" || history.Records[3].Status != "completed" {
+		t.Fatal("resume must leave past paused days unchanged")
+	}
+	f.advance(1)
+	b = f.board(t, "2026-10-17")
+	if len(b.Buckets["today"]) != 1 || b.Buckets["today"][0].Title != "明天的新目标" || b.Statistics.TotalPlans != 3 {
+		t.Fatal("resume failed to cancel tomorrow's pause or lost pending edits")
+	}
+}
+
+func TestRecurringResumeHonorsDeletedOccurrencesAndFutureStart(t *testing.T) {
+	for _, purge := range []bool{false, true} {
+		t.Run(map[bool]string{false: "trash", true: "purged"}[purge], func(t *testing.T) {
+			f := newFixture(t)
+			f.setup(t)
+			p := f.recurring(t, "2026-10-13", "2026-10-30")
+			task := f.board(t, "2026-10-13").Buckets["today"][0]
+			expect(t, f.send(t, "DELETE", "/api/tasks/"+task.ID, map[string]any{"version": task.Version}), 204)
+			if purge {
+				trashed := f.board(t, "2026-10-13").Trash[0]
+				expect(t, f.send(t, "DELETE", "/api/trash/"+task.ID, map[string]any{"version": trashed.Version}), 204)
+			}
+			for _, status := range []string{"paused", "active"} {
+				r := f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": status})
+				expect(t, r, 200)
+				p = decode[RecurringPlan](t, r)
+			}
+			if len(f.board(t, "2026-10-13").Buckets["today"]) != 0 {
+				t.Fatal("resume resurrected a deleted occurrence")
+			}
+			f.advance(1)
+			if len(f.board(t, "2026-10-14").Buckets["today"]) != 1 {
+				t.Fatal("same-day resume left tomorrow paused")
+			}
+		})
+	}
+	t.Run("future start", func(t *testing.T) {
+		f := newFixture(t)
+		f.setup(t)
+		p := f.recurring(t, "2026-10-15", "2026-10-30")
+		for _, status := range []string{"paused", "active"} {
+			r := f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": status})
+			expect(t, r, 200)
+			p = decode[RecurringPlan](t, r)
+		}
+		if f.board(t, "2026-10-13").Statistics.TotalPlans != 0 {
+			t.Fatal("resume generated before the plan's start")
+		}
+		f.advance(2)
+		if len(f.board(t, "2026-10-15").Buckets["today"]) != 1 {
+			t.Fatal("resumed future plan did not start on its scheduled day")
+		}
+	})
+}
+
+func TestRecurringResumeUpgradesLegacyNextDayResume(t *testing.T) {
+	f := newFixture(t)
+	f.setup(t)
+	p := f.recurring(t, "2026-10-13", "2026-10-30")
+	r := f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": "paused"})
+	expect(t, r, 200)
+	p = decode[RecurringPlan](t, r)
+	f.advance(2)
+	// Reproduce a resume saved by the old server: active in the list, paused today.
+	if _, err := f.server.db.Exec("UPDATE recurring_plans SET status='active',effective_date='2026-10-16',version=version+1 WHERE id=?", p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.server.db.Exec("INSERT INTO recurring_revisions(plan_id,effective_date,title,notes,end_date,status) SELECT id,effective_date,title,notes,end_date,status FROM recurring_plans WHERE id=?", p.ID); err != nil {
+		t.Fatal(err)
+	}
+	r = f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version + 1, "status": "active", "title": "恢复时修改的目标"})
+	expect(t, r, 200)
+	if b := f.board(t, "2026-10-15"); len(b.Buckets["today"]) != 1 || b.Buckets["today"][0].Title != "每天读书" {
+		t.Fatal("legacy queued resume must generate today with today's content")
+	}
+	if len(f.board(t, "2026-10-14").Buckets["today"]) != 0 {
+		t.Fatal("legacy resume backfilled paused history")
+	}
+	f.advance(1)
+	if b := f.board(t, "2026-10-16"); len(b.Buckets["today"]) != 1 || b.Buckets["today"][0].Title != "恢复时修改的目标" {
+		t.Fatal("content edits submitted with a resume must still start tomorrow")
 	}
 }
 func TestRecurringAuthenticationAndValidation(t *testing.T) {
@@ -355,6 +474,7 @@ func TestRecurringCheckinHonorsEffectiveRevision(t *testing.T) {
 	r = f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": "active"})
 	expect(t, r, 200)
 	p = decode[RecurringPlan](t, r)
+	expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-15", "done": true}), 200)
 	f.advance(1)
 	expect(t, f.send(t, "POST", "/api/recurring/"+p.ID+"/checkin", map[string]any{"date": "2026-10-16", "done": true}), 200)
 	r = f.send(t, "PATCH", "/api/recurring/"+p.ID, map[string]any{"version": p.Version, "status": "stopped"})
@@ -366,7 +486,7 @@ func TestRecurringCheckinHonorsEffectiveRevision(t *testing.T) {
 	r = f.send(t, "GET", "/api/recurring/"+p.ID+"/records", nil)
 	expect(t, r, 200)
 	history = decode[RecurringHistory](t, r)
-	if history.TotalDays != 4 || history.PassedDays != 4 || history.CompletedDays != 2 || history.MissedDays != 0 || history.Records[3].Date != "2026-10-16" || history.CurrentStreak != 2 || history.LongestStreak != 2 {
+	if history.TotalDays != 4 || history.PassedDays != 4 || history.CompletedDays != 3 || history.MissedDays != 0 || history.Records[3].Date != "2026-10-16" || history.CurrentStreak != 3 || history.LongestStreak != 3 {
 		t.Fatalf("stopped dates must not create pending/missed records: %+v", history)
 	}
 }

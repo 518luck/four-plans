@@ -559,33 +559,102 @@ async function goalRoute(
     if (goal.version !== version) conflict();
     if (goal.status === "stopped")
       throw new HttpError(409, "已停止的目标保留为历史，请新建目标", "stopped");
+    const currentRevision =
+      body.status === "active"
+        ? await db
+            .prepare(
+              "SELECT title,notes,end_date,status FROM recurring_revisions WHERE plan_id=? AND effective_date<=? ORDER BY effective_date DESC LIMIT 1",
+            )
+            .bind(id, today)
+            .first<Row>()
+        : null;
+    const resuming =
+      body.status === "active" &&
+      (goal.status === "paused" || currentRevision?.status === "paused");
     if (body.title !== undefined) goal.title = text(body.title);
     if (body.notes !== undefined) goal.notes = text(body.notes);
     if (body.end !== undefined) goal.end = text(body.end);
     if (body.status !== undefined)
       goal.status = text(body.status) as RecurringPlan["status"];
     validateGoal(goal);
-    goal.effectiveDate = addDays(today, 1);
-    if (body.end !== undefined && goal.end < goal.effectiveDate)
+    goal.effectiveDate = resuming ? today : addDays(today, 1);
+    if (body.end !== undefined && goal.end < addDays(today, 1))
       bad("新的截止日期不能早于明天");
     goal.version++;
     goal.updatedAt = stamp;
-    const result = await db
-      .prepare(
-        "UPDATE recurring_plans SET title=?,notes=?,end_date=?,status=?,effective_date=?,version=version+1,updated_at=? WHERE id=? AND user_id=1 AND version=? AND status<>'stopped'",
-      )
-      .bind(
-        goal.title,
-        goal.notes,
-        goal.end,
-        goal.status,
-        goal.effectiveDate,
-        stamp,
-        id,
-        version,
-      )
-      .run();
+    const statements = [
+      db
+        .prepare(
+          "UPDATE recurring_plans SET title=?,notes=?,end_date=?,status=?,effective_date=?,version=version+1,updated_at=?,generated_until=CASE WHEN ?=1 AND generated_until>=? THEN ? ELSE generated_until END WHERE id=? AND user_id=1 AND version=? AND status<>'stopped'",
+        )
+        .bind(
+          goal.title,
+          goal.notes,
+          goal.end,
+          goal.status,
+          goal.effectiveDate,
+          stamp,
+          resuming ? 1 : 0,
+          today,
+          addDays(today, -1),
+          id,
+          version,
+        ),
+    ];
+    if (resuming && currentRevision) {
+      // Guard all revision changes with the same winning plan version as the CAS.
+      // Keep today's content and tomorrow's pending edits at their original dates.
+      const resumedPlan =
+        "EXISTS(SELECT 1 FROM recurring_plans WHERE id=? AND version=? AND status='active' AND effective_date=?)";
+      statements.push(
+        db
+          .prepare(
+            `UPDATE recurring_revisions SET title=?,notes=?,end_date=? WHERE plan_id=? AND effective_date=? AND ${resumedPlan}`,
+          )
+          .bind(
+            currentRevision.title,
+            currentRevision.notes,
+            currentRevision.end_date,
+            id,
+            today,
+            id,
+            goal.version,
+            today,
+          ),
+        db
+          .prepare(
+            `UPDATE recurring_revisions SET status='active' WHERE plan_id=? AND effective_date>? AND ${resumedPlan}`,
+          )
+          .bind(id, today, id, goal.version, today),
+      );
+      if (
+        body.title !== undefined ||
+        body.notes !== undefined ||
+        body.end !== undefined
+      ) {
+        statements.push(
+          db
+            .prepare(
+              `INSERT INTO recurring_revisions(plan_id,effective_date,title,notes,end_date,status)
+               SELECT ?,?,?,?,?,'active' WHERE ${resumedPlan}
+               ON CONFLICT(plan_id,effective_date) DO UPDATE SET title=excluded.title,notes=excluded.notes,end_date=excluded.end_date,status=excluded.status`,
+            )
+            .bind(
+              id,
+              addDays(today, 1),
+              goal.title,
+              goal.notes,
+              goal.end,
+              id,
+              goal.version,
+              today,
+            ),
+        );
+      }
+    }
+    const [result] = await db.batch(statements);
     if (!result.meta.changes) conflict();
+    if (resuming) await generate(db, now);
     return json(goal);
   }
   throw new HttpError(404, "接口不存在", "not_found");

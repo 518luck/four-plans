@@ -184,7 +184,7 @@ func (s *Server) updateRecurring(c *gin.Context) {
 		fail(c, 400, "缺少目标版本", "invalid")
 		return
 	}
-	// Materialize today's original task before a revision that starts tomorrow.
+	// Preserve today's existing task before applying a revision.
 	if err := s.generateRecurring(c.Request.Context()); err != nil {
 		s.internal(c, err)
 		return
@@ -212,6 +212,17 @@ func (s *Server) updateRecurring(c *gin.Context) {
 		fail(c, 409, "已停止的目标保留为历史，请新建目标", "stopped")
 		return
 	}
+	today := s.now().In(s.location).Format("2006-01-02")
+	var currentRevision recurringRevision
+	resuming := false
+	if in.Status != nil && *in.Status == "active" {
+		err = tx.QueryRowContext(c.Request.Context(), "SELECT effective_date,title,notes,end_date,status FROM recurring_revisions WHERE plan_id=? AND effective_date<=? ORDER BY effective_date DESC LIMIT 1", p.ID, today).Scan(&currentRevision.Date, &currentRevision.Title, &currentRevision.Notes, &currentRevision.End, &currentRevision.Status)
+		if err != nil {
+			s.internal(c, err)
+			return
+		}
+		resuming = p.Status == "paused" || currentRevision.Status == "paused"
+	}
 	if in.Title != nil {
 		p.Title = *in.Title
 	}
@@ -228,16 +239,35 @@ func (s *Server) updateRecurring(c *gin.Context) {
 		fail(c, 400, err.Error(), "invalid")
 		return
 	}
-	p.EffectiveDate = s.now().In(s.location).AddDate(0, 0, 1).Format("2006-01-02")
+	p.EffectiveDate = addDays(today, 1)
+	if resuming {
+		p.EffectiveDate = today
+	}
 	p.UpdatedAt = stamp(s.now())
 	p.Version++
-	if in.End != nil && p.End < p.EffectiveDate {
+	if in.End != nil && p.End < addDays(today, 1) {
 		fail(c, 400, "新的截止日期不能早于明天", "invalid")
 		return
 	}
 	_, err = tx.ExecContext(c.Request.Context(), "UPDATE recurring_plans SET title=?,notes=?,end_date=?,status=?,effective_date=?,updated_at=?,version=? WHERE id=? AND user_id=1", p.Title, p.Notes, p.End, p.Status, p.EffectiveDate, p.UpdatedAt, p.Version, p.ID)
 	if err == nil {
 		_, err = tx.ExecContext(c.Request.Context(), "INSERT INTO recurring_revisions(plan_id,effective_date,title,notes,end_date,status) VALUES(?,?,?,?,?,?) ON CONFLICT(plan_id,effective_date) DO UPDATE SET title=excluded.title,notes=excluded.notes,end_date=excluded.end_date,status=excluded.status", p.ID, p.EffectiveDate, p.Title, p.Notes, p.End, p.Status)
+	}
+	if err == nil && resuming {
+		// Resume today's schedule without bringing tomorrow's content edits forward.
+		_, err = tx.ExecContext(c.Request.Context(), "UPDATE recurring_revisions SET title=?,notes=?,end_date=? WHERE plan_id=? AND effective_date=?", currentRevision.Title, currentRevision.Notes, currentRevision.End, p.ID, today)
+		if err == nil {
+			_, err = tx.ExecContext(c.Request.Context(), "UPDATE recurring_revisions SET status='active' WHERE plan_id=? AND effective_date>?", p.ID, today)
+		}
+		if err == nil && (in.Title != nil || in.Notes != nil || in.End != nil) {
+			_, err = tx.ExecContext(c.Request.Context(), "INSERT INTO recurring_revisions(plan_id,effective_date,title,notes,end_date,status) VALUES(?,?,?,?,?,?) ON CONFLICT(plan_id,effective_date) DO UPDATE SET title=excluded.title,notes=excluded.notes,end_date=excluded.end_date,status=excluded.status", p.ID, addDays(today, 1), p.Title, p.Notes, p.End, p.Status)
+		}
+		if err == nil {
+			_, err = tx.ExecContext(c.Request.Context(), "UPDATE recurring_plans SET generated_until=CASE WHEN generated_until>=? THEN ? ELSE generated_until END WHERE id=?", today, addDays(today, -1), p.ID)
+		}
+		if err == nil {
+			err = s.generateRecurringTx(c.Request.Context(), tx)
+		}
 	}
 	if err != nil {
 		s.internal(c, err)
