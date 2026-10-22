@@ -97,6 +97,7 @@ export function taskFromRow(row: Row): Task {
     completedAt: row.completed_at ? String(row.completed_at) : undefined,
     recurringId: row.recurring_id ? String(row.recurring_id) : undefined,
     completionDateEstimated: !!row.completion_date_estimated,
+    reminderDate: row.reminder_date ? String(row.reminder_date) : undefined,
     reminderTime: row.reminder_time ? String(row.reminder_time) : undefined,
     reminderAdvance: row.reminder_advance ? Number(row.reminder_advance) : 0,
     remindedAt: row.reminded_at ? String(row.reminded_at) : undefined,
@@ -124,18 +125,23 @@ export function validateTask(task: Task): void {
   task.title = task.title.trim();
   task.notes = task.notes.trim();
   if (task.reminderTime) {
+    task.reminderDate ||= task.date;
+    parseDate(task.reminderDate);
     task.reminderTime = task.reminderTime.trim();
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(task.reminderTime)) {
       bad("提醒时间格式无效，请输入 HH:mm");
     }
     if (
       task.reminderAdvance !== undefined &&
-      (task.reminderAdvance < 0 || task.reminderAdvance > 120)
+      (!Number.isInteger(task.reminderAdvance) ||
+        task.reminderAdvance < 0 ||
+        task.reminderAdvance > 120)
     ) {
       bad("提醒提前时间无效");
     }
   } else {
     task.reminderAdvance = 0;
+    task.reminderDate = undefined;
   }
   if (!task.title || [...task.title].length > 160)
     bad("计划标题需要 1–160 个字");
@@ -223,6 +229,76 @@ export function statistics(tasks: Task[], now: Date, year = 0): PlanStatistics {
   return result;
 }
 
+/** Apply exactly one promotion step for both the board and daily details. */
+export function projectTask(
+  task: Task,
+  date: string,
+  bounds = periods(date),
+): { task: Task; placement: Task["bucket"] | "carryover" | null } {
+  const timestampDate = (value: string) =>
+    Number.isFinite(Date.parse(value)) ? beijingDate(new Date(value)) : "";
+  const usesOperationDate = task.bucket === "week" || task.bucket === "month";
+  const createdDate = usesOperationDate ? timestampDate(task.createdAt) : "";
+  const activeToday =
+    usesOperationDate &&
+    (createdDate === date || timestampDate(task.updatedAt) === date);
+  let end = task.date;
+  switch (task.bucket) {
+    case "today":
+      if (task.date === date) return { task, placement: "today" };
+      break;
+    case "three":
+      end = addDays(task.date, 2);
+      if (date === end && !task.done)
+        return { task: { ...task, bucket: "today", date }, placement: "today" };
+      if (
+        (task.date <= date && date <= end) ||
+        (task.date >= bounds.three.start && task.date <= bounds.three.end)
+      )
+        return { task, placement: "three" };
+      break;
+    case "week": {
+      const friday = addDays(task.date, 4);
+      end = addDays(task.date, 6);
+      if (
+        !task.done &&
+        !activeToday &&
+        date >= friday &&
+        date <= end &&
+        (createdDate < friday || date > createdDate)
+      )
+        return {
+          task: { ...task, bucket: "three", date: friday },
+          placement: "three",
+        };
+      if (
+        (task.date <= date && date <= end) ||
+        (task.date >= bounds.week.start && task.date <= bounds.week.end)
+      )
+        return { task, placement: "week" };
+      break;
+    }
+    case "month":
+      end = lastDayOfMonth(task.date);
+      if (!task.done && !activeToday && date >= addDays(end, -6) && date <= end)
+        return {
+          task: { ...task, bucket: "week", date: bounds.week.start },
+          placement: "week",
+        };
+      if (
+        (task.date <= date && date <= end) ||
+        (task.date >= bounds.month.start && task.date <= bounds.month.end)
+      )
+        return { task, placement: "month" };
+      break;
+  }
+  return {
+    task,
+    placement:
+      date > end && !task.done && !task.recurringId ? "carryover" : null,
+  };
+}
+
 export function dayDetail(tasks: Task[], date: string): DayDetail {
   const result: DayDetail = {
     date,
@@ -231,6 +307,8 @@ export function dayDetail(tasks: Task[], date: string): DayDetail {
     total: 0,
     rate: 0,
   };
+
+  const bounds = periods(date);
 
   for (const task of tasks) {
     if (task.deletedAt || task.cancelledAt) continue;
@@ -244,53 +322,15 @@ export function dayDetail(tasks: Task[], date: string): DayDetail {
     }
 
     if (task.done && compDate === date) {
-      let finalTask = task;
-      if (
-        (task.bucket === "three" && date === addDays(task.date, 2)) ||
-        (task.bucket === "week" && date === addDays(task.date, 6)) ||
-        (task.bucket === "month" && date === lastDayOfMonth(task.date))
-      ) {
-        finalTask = { ...task, bucket: "today", date };
-      }
-      result.completed.push(finalTask);
+      result.completed.push(task);
       continue;
     }
 
-    if (!task.done || (task.done && compDate > date)) {
-      let active = false;
-      let finalTask = task;
-      switch (task.bucket) {
-        case "today":
-          active = task.date === date;
-          break;
-        case "three": {
-          const cycleEnd = addDays(task.date, 2);
-          if (date === cycleEnd) {
-            active = true;
-            finalTask = { ...task, bucket: "today", date };
-          }
-          break;
-        }
-        case "week": {
-          const sunday = addDays(task.date, 6);
-          if (date === sunday) {
-            active = true;
-            finalTask = { ...task, bucket: "today", date };
-          }
-          break;
-        }
-        case "month": {
-          const monthEnd = lastDayOfMonth(task.date);
-          if (date === monthEnd) {
-            active = true;
-            finalTask = { ...task, bucket: "today", date };
-          }
-          break;
-        }
-      }
-      if (active) {
-        result.uncompleted.push(finalTask);
-      }
+    if (!task.done || compDate > date) {
+      // Reconstruct unfinished placement when completion happened later.
+      const projected = projectTask({ ...task, done: false }, date, bounds);
+      if (projected.placement === "today")
+        result.uncompleted.push({ ...projected.task, done: task.done });
     }
   }
 

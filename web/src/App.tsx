@@ -467,6 +467,7 @@ function TaskEditor({
     bucket: Bucket;
     date: string;
     priority: boolean;
+    reminderDate?: string;
     reminderTime?: string;
     reminderAdvance?: number;
   }) => Promise<boolean>;
@@ -486,6 +487,9 @@ function TaskEditor({
   const [hasReminder, setHasReminder] = useState(
     Boolean(editor.task?.reminderTime),
   );
+  const [reminderDate, setReminderDate] = useState(
+    editor.reschedule ? addDays(anchor, 1) : editor.task?.reminderDate || date,
+  );
   const [reminderTime, setReminderTime] = useState(
     editor.task?.reminderTime || "09:00",
   );
@@ -501,6 +505,7 @@ function TaskEditor({
         bucket,
         date,
         priority,
+        reminderDate: hasReminder ? reminderDate : "",
         reminderTime: hasReminder ? reminderTime : "",
         reminderAdvance: hasReminder ? reminderAdvance : 0,
       })
@@ -571,7 +576,10 @@ function TaskEditor({
           <input
             type="date"
             value={date}
-            onChange={(event) => setDate(event.target.value)}
+            onChange={(event) => {
+              setDate(event.target.value);
+              setReminderDate(event.target.value);
+            }}
             required
             min="0001-01-01"
             max="9999-12-31"
@@ -615,6 +623,17 @@ function TaskEditor({
           </label>
           {hasReminder && (
             <div className="reminder-inputs">
+              <label>
+                提醒日期
+                <input
+                  type="date"
+                  value={reminderDate}
+                  onChange={(event) => setReminderDate(event.target.value)}
+                  required
+                  min="0001-01-01"
+                  max="9999-12-31"
+                />
+              </label>
               <label>
                 提醒时间
                 <input
@@ -767,8 +786,8 @@ function TaskRow({
                 task.remindedAt
                   ? `已于 ${task.remindedAt.slice(11, 16)} 提醒`
                   : task.reminderAdvance
-                    ? `将在 ${task.reminderTime} 提前 ${task.reminderAdvance} 分钟提醒`
-                    : `将在 ${task.reminderTime} 准时提醒`
+                    ? `将在 ${task.reminderDate || task.date} ${task.reminderTime} 提前 ${task.reminderAdvance} 分钟提醒`
+                    : `将在 ${task.reminderDate || task.date} ${task.reminderTime} 准时提醒`
               }
             >
               <Bell size={11} />
@@ -809,7 +828,10 @@ function TaskRow({
                 disabled={busy}
                 onClick={onFocus}
               >
-                <Star size={15} fill={task.priority ? "currentColor" : "none"} />
+                <Star
+                  size={15}
+                  fill={task.priority ? "currentColor" : "none"}
+                />
               </button>
             )}
             {!task.done && onCancel && (
@@ -1414,7 +1436,12 @@ export default function App() {
         onFocus={() =>
           void update(
             task,
-            { priority: !task.priority, bucket: task.bucket, date: task.date },
+            {
+              priority: !task.priority,
+              bucket: task.bucket,
+              date: task.date,
+              reminderDate: task.reminderDate,
+            },
             task.priority ? "已取消优先标记" : "今天先做这件事",
           )
         }
@@ -1696,13 +1723,13 @@ export default function App() {
           <ReschedulePanel
             carryovers={carryovers}
             cancelled={cancelled}
-            anchor={anchor}
             busy={busy}
             updatingTaskIds={updatingTaskIds}
             onUpdate={update}
             onOpenEditor={setEditor}
             onDelete={(task: Task) => setRemove(task)}
             onBackToBoard={() => setView("board")}
+            onScheduledToday={setAnchor}
           />
         ) : (
           <>
@@ -2337,14 +2364,31 @@ export default function App() {
                 来源
               </a>
             </div>
-            <ReminderSettingsPanel
-              initialSettings={board?.reminderSettings}
-              onSaved={(newSettings) => {
-                boardUpdates.current.setReminderSettings(newSettings);
-                displayBoard();
-              }}
-              onNotify={(msg) => notify(msg)}
-            />
+            {board?.reminderSettings ? (
+              <ReminderSettingsPanel
+                initialSettings={board.reminderSettings}
+                onSaved={(newSettings) => {
+                  boardUpdates.current.setReminderSettings(newSettings);
+                  displayBoard();
+                }}
+                onNotify={(msg) => notify(msg)}
+              />
+            ) : (
+              <div className="reminder-settings-section" role="status">
+                <p>
+                  {sync === "loading"
+                    ? "正在读取飞书提醒设置…"
+                    : "暂时无法读取飞书提醒设置，请重试。"}
+                </p>
+                <button
+                  className="button secondary"
+                  disabled={sync === "loading"}
+                  onClick={() => void loadBoard()}
+                >
+                  重新读取设置
+                </button>
+              </div>
+            )}
             <ResourcePanel />
           </div>
         </Modal>

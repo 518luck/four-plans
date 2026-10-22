@@ -66,6 +66,10 @@ func OpenStore(filename string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate cancelled tasks: %w", err)
 	}
+	if err := migrateReminderDate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate reminder dates: %w", err)
+	}
 	if err := os.Chmod(absolute, 0600); err != nil {
 		db.Close()
 		return nil, err
@@ -270,6 +274,30 @@ func migrateCancelled(db *sql.DB) error {
  CREATE INDEX IF NOT EXISTS tasks_cancelled ON tasks(user_id, cancelled_at);
  PRAGMA user_version = 5;
  `); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func migrateReminderDate(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version int
+	if err := tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version >= 6 {
+		return tx.Commit()
+	}
+	if _, err := tx.Exec(`
+ALTER TABLE tasks ADD COLUMN reminder_date TEXT NOT NULL DEFAULT '';
+UPDATE tasks SET reminder_date=scheduled_date WHERE reminder_time!='';
+CREATE INDEX tasks_reminder_date ON tasks(reminder_date, reminder_time);
+PRAGMA user_version = 6;
+`); err != nil {
 		return err
 	}
 	return tx.Commit()

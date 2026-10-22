@@ -11,7 +11,7 @@ import {
   Bell,
   ArrowRight,
 } from "lucide-react";
-import type { Task, Bucket } from "./api";
+import { today, type Task, type Bucket } from "./api";
 import "./reschedule.css";
 
 const bucketNames: Record<Bucket, string> = {
@@ -24,7 +24,6 @@ const bucketNames: Record<Bucket, string> = {
 interface ReschedulePanelProps {
   carryovers: Task[];
   cancelled: Task[];
-  anchor: string;
   busy: boolean;
   updatingTaskIds: Set<string>;
   onUpdate: (
@@ -39,18 +38,19 @@ interface ReschedulePanelProps {
   }) => void;
   onDelete: (task: Task) => void;
   onBackToBoard?: () => void;
+  onScheduledToday: (date: string) => void;
 }
 
 export default function ReschedulePanel({
   carryovers,
   cancelled,
-  anchor,
   busy,
   updatingTaskIds,
   onUpdate,
   onOpenEditor,
   onDelete,
   onBackToBoard,
+  onScheduledToday,
 }: ReschedulePanelProps) {
   const [tab, setTab] = useState<"all" | "overdue" | "cancelled">("all");
 
@@ -64,11 +64,13 @@ export default function ReschedulePanel({
   }, [tab, carryovers, cancelled]);
 
   const handleContinueToday = async (task: Task) => {
-    await onUpdate(
+    const date = today();
+    const saved = await onUpdate(
       task,
-      { bucket: "today", date: anchor, cancelledAt: "" },
+      { bucket: "today", date, cancelledAt: "" },
       task.cancelledAt ? "已重新激活并安排到今天" : "已重新选入今天继续执行",
     );
+    if (saved) onScheduledToday(date);
   };
 
   const handleCancelTask = async (task: Task) => {

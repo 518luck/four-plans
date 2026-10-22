@@ -7,19 +7,17 @@ export default function ReminderSettingsPanel({
   onSaved,
   onNotify,
 }: {
-  initialSettings?: ReminderSettings;
+  initialSettings: ReminderSettings;
   onSaved: (settings: ReminderSettings) => void;
   onNotify: (msg: string) => void;
 }) {
-  const [enabled, setEnabled] = useState(initialSettings?.enabled ?? false);
-  const [webhookUrl, setWebhookUrl] = useState(
-    initialSettings?.webhookUrl ?? "",
-  );
+  const [enabled, setEnabled] = useState(initialSettings.enabled);
+  const [webhookUrl, setWebhookUrl] = useState(initialSettings.webhookUrl);
   const [webhookSecret, setWebhookSecret] = useState(
-    initialSettings?.webhookSecret ?? "",
+    initialSettings.webhookSecret ?? "",
   );
   const [defaultAdvance, setDefaultAdvance] = useState(
-    initialSettings?.defaultAdvance ?? 0,
+    initialSettings.defaultAdvance,
   );
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);

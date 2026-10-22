@@ -231,7 +231,7 @@ func (s *Server) CheckAndSendReminders(ctx context.Context) error {
 	now := s.now().In(s.location)
 	currentDate := now.Format("2006-01-02")
 
-	rows, err := s.db.QueryContext(ctx, "SELECT "+taskColumns+" FROM tasks WHERE user_id=1 AND scheduled_date=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL AND COALESCE(cancelled_at,'')=''", currentDate)
+	rows, err := s.db.QueryContext(ctx, "SELECT "+taskColumns+" FROM tasks WHERE user_id=1 AND reminder_date>=? AND reminder_date<=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL AND COALESCE(cancelled_at,'')=''", currentDate, addDays(currentDate, 1))
 	if err != nil {
 		return err
 	}
@@ -241,7 +241,7 @@ func (s *Server) CheckAndSendReminders(ctx context.Context) error {
 	}
 
 	for _, task := range tasks {
-		taskTime, err := time.ParseInLocation("2006-01-02 15:04", currentDate+" "+task.ReminderTime, s.location)
+		taskTime, err := time.ParseInLocation("2006-01-02 15:04", task.ReminderDate+" "+task.ReminderTime, s.location)
 		if err != nil {
 			continue
 		}
@@ -266,7 +266,7 @@ func (s *Server) CheckAndSendReminders(ctx context.Context) error {
 
 		var lines []string
 		lines = append(lines, fmt.Sprintf("🎯 计划：%s", task.Title))
-		lines = append(lines, fmt.Sprintf("⏰ 时间：%s (%s)", task.ReminderTime, advanceText))
+		lines = append(lines, fmt.Sprintf("⏰ 时间：%s %s (%s)", task.ReminderDate, task.ReminderTime, advanceText))
 		lines = append(lines, fmt.Sprintf("📌 类别：%s计划%s", bucketName, priorityTag))
 		if task.Notes != "" {
 			lines = append(lines, fmt.Sprintf("📝 备注：%s", task.Notes))
@@ -279,7 +279,7 @@ func (s *Server) CheckAndSendReminders(ctx context.Context) error {
 			continue
 		}
 
-		_, _ = s.db.ExecContext(ctx, "UPDATE tasks SET reminded_at=? WHERE id=? AND (reminded_at='' OR reminded_at IS NULL)", stamp(s.now()), task.ID)
+		_, _ = s.db.ExecContext(ctx, "UPDATE tasks SET reminded_at=? WHERE id=? AND (reminded_at='' OR reminded_at IS NULL) AND reminder_date=? AND reminder_time=? AND reminder_advance=? AND done=0 AND deleted_at IS NULL AND COALESCE(cancelled_at,'')=''", stamp(s.now()), task.ID, task.ReminderDate, task.ReminderTime, task.ReminderAdvance)
 	}
 	return nil
 }

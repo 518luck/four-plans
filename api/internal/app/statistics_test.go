@@ -135,7 +135,7 @@ func TestLegacyCompletionDateMigration(t *testing.T) {
 			t.Fatal("migration must not complete a pending plan")
 		}
 		var version int
-		if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
+		if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
 			db.Close()
 			t.Fatal("migration version must be durable")
 		}

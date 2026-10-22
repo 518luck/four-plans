@@ -14,6 +14,7 @@ export interface Task {
   deletedAt?: string;
   completedAt?: string;
   completionDateEstimated?: boolean;
+  reminderDate?: string;
   reminderTime?: string;
   reminderAdvance?: number;
   remindedAt?: string;

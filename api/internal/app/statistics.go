@@ -159,6 +159,8 @@ func calculateDayDetail(tasks []Task, date string, location *time.Location) DayD
 		Uncompleted: make([]Task, 0),
 	}
 
+	bounds, _ := periods(date, location)
+
 	for _, task := range tasks {
 		if task.DeletedAt != "" || task.CancelledAt != "" {
 			continue
@@ -177,47 +179,19 @@ func calculateDayDetail(tasks []Task, date string, location *time.Location) DayD
 		}
 
 		if task.Done && compDate == date {
-			finalTask := task
-			if (task.Bucket == "three" && date == addDays(task.Date, 2)) ||
-				(task.Bucket == "week" && date == addDays(task.Date, 6)) ||
-				(task.Bucket == "month" && date == lastDayOfMonth(task.Date)) {
-				finalTask.Bucket = "today"
-				finalTask.Date = date
-			}
-			result.Completed = append(result.Completed, finalTask)
+			result.Completed = append(result.Completed, task)
 			continue
 		}
 
-		if !task.Done || (task.Done && compDate > date) {
-			active := false
-			finalTask := task
-			switch task.Bucket {
-			case "today":
-				active = (task.Date == date)
-			case "three":
-				cycleEnd := addDays(task.Date, 2)
-				if date == cycleEnd {
-					active = true
-					finalTask.Bucket = "today"
-					finalTask.Date = date
-				}
-			case "week":
-				sunday := addDays(task.Date, 6)
-				if date == sunday {
-					active = true
-					finalTask.Bucket = "today"
-					finalTask.Date = date
-				}
-			case "month":
-				monthEnd := lastDayOfMonth(task.Date)
-				if date == monthEnd {
-					active = true
-					finalTask.Bucket = "today"
-					finalTask.Date = date
-				}
-			}
-			if active {
-				result.Uncompleted = append(result.Uncompleted, finalTask)
+		if !task.Done || compDate > date {
+			// A later completion must not hide the task from an earlier day's
+			// unfinished list. Its calendar placement still follows the board.
+			pending := task
+			pending.Done = false
+			projected, placement := projectTask(pending, date, bounds, location)
+			if placement == "today" {
+				projected.Done = task.Done
+				result.Uncompleted = append(result.Uncompleted, projected)
 			}
 		}
 	}

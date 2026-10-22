@@ -24,6 +24,7 @@ type Task struct {
 	DeletedAt               string `json:"deletedAt,omitempty"`
 	CompletedAt             string `json:"completedAt,omitempty"`
 	CompletionDateEstimated bool   `json:"completionDateEstimated,omitempty"`
+	ReminderDate            string `json:"reminderDate,omitempty"`
 	ReminderTime            string `json:"reminderTime,omitempty"`
 	ReminderAdvance         int    `json:"reminderAdvance"`
 	RemindedAt              string `json:"remindedAt,omitempty"`
@@ -87,6 +88,12 @@ func validateTask(task *Task, location *time.Location) error {
 		return errors.New("备注最多 1000 个字")
 	}
 	if task.ReminderTime != "" {
+		if task.ReminderDate == "" {
+			task.ReminderDate = task.Date
+		}
+		if _, err := periods(task.ReminderDate, location); err != nil {
+			return err
+		}
 		if !timeRegex.MatchString(task.ReminderTime) {
 			return errors.New("提醒时间格式无效，请输入 HH:mm")
 		}
@@ -95,6 +102,7 @@ func validateTask(task *Task, location *time.Location) error {
 		}
 	} else {
 		task.ReminderAdvance = 0
+		task.ReminderDate = ""
 	}
 	ranges, err := periods(task.Date, location)
 	if err != nil {
@@ -113,13 +121,13 @@ func validateTask(task *Task, location *time.Location) error {
 	return nil
 }
 
-const taskColumns = "id,title,notes,bucket,scheduled_date,done,priority,version,created_at,updated_at,COALESCE(deleted_at,''),COALESCE(completed_at,''),completion_date_estimated,recurring_id,COALESCE(reminder_time,''),COALESCE(reminder_advance,0),COALESCE(reminded_at,''),COALESCE(cancelled_at,'')"
+const taskColumns = "id,title,notes,bucket,scheduled_date,done,priority,version,created_at,updated_at,COALESCE(deleted_at,''),COALESCE(completed_at,''),completion_date_estimated,recurring_id,COALESCE(reminder_time,''),COALESCE(reminder_advance,0),COALESCE(reminded_at,''),COALESCE(cancelled_at,''),COALESCE(reminder_date,'')"
 
 type scanner interface{ Scan(...any) error }
 
 func scanTask(row scanner) (Task, error) {
 	var task Task
-	err := row.Scan(&task.ID, &task.Title, &task.Notes, &task.Bucket, &task.Date, &task.Done, &task.Priority, &task.Version, &task.CreatedAt, &task.UpdatedAt, &task.DeletedAt, &task.CompletedAt, &task.CompletionDateEstimated, &task.RecurringID, &task.ReminderTime, &task.ReminderAdvance, &task.RemindedAt, &task.CancelledAt)
+	err := row.Scan(&task.ID, &task.Title, &task.Notes, &task.Bucket, &task.Date, &task.Done, &task.Priority, &task.Version, &task.CreatedAt, &task.UpdatedAt, &task.DeletedAt, &task.CompletedAt, &task.CompletionDateEstimated, &task.RecurringID, &task.ReminderTime, &task.ReminderAdvance, &task.RemindedAt, &task.CancelledAt, &task.ReminderDate)
 	return task, err
 }
 

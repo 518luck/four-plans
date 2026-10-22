@@ -347,90 +347,11 @@ func (s *Server) board(c *gin.Context) {
 			cancelled = append(cancelled, task)
 			continue
 		}
-		switch task.Bucket {
-		case "today":
-			if task.Date == date {
-				buckets["today"] = append(buckets["today"], task)
-			} else if task.Date < date && !task.Done && task.RecurringID == "" {
-				carryovers = append(carryovers, task)
-			}
-		case "three":
-			createdDate := task.CreatedAt
-			if len(createdDate) >= 10 {
-				createdDate = createdDate[:10]
-			}
-			updatedDate := task.UpdatedAt
-			if len(updatedDate) >= 10 {
-				updatedDate = updatedDate[:10]
-			}
-			activeToday := createdDate == date || updatedDate == date
-			cycleEnd := addDays(task.Date, 2)
-			if !activeToday && date == cycleEnd {
-				if !task.Done {
-					promoted := task
-					promoted.Bucket = "today"
-					promoted.Date = date
-					buckets["today"] = append(buckets["today"], promoted)
-				} else {
-					buckets["three"] = append(buckets["three"], task)
-				}
-			} else if (task.Date <= date && date <= cycleEnd) || (task.Date >= bounds["three"].Start && task.Date <= bounds["three"].End) {
-				buckets["three"] = append(buckets["three"], task)
-			} else if date > cycleEnd && !task.Done && task.RecurringID == "" {
-				carryovers = append(carryovers, task)
-			}
-		case "week":
-			createdDate := task.CreatedAt
-			if len(createdDate) >= 10 {
-				createdDate = createdDate[:10]
-			}
-			updatedDate := task.UpdatedAt
-			if len(updatedDate) >= 10 {
-				updatedDate = updatedDate[:10]
-			}
-			activeToday := createdDate == date || updatedDate == date
-			friday := addDays(task.Date, 4)
-			sunday := addDays(task.Date, 6)
-			if !activeToday && date >= friday && date <= sunday && (createdDate < friday || date > createdDate) {
-				if !task.Done {
-					promoted := task
-					promoted.Bucket = "three"
-					promoted.Date = friday
-					buckets["three"] = append(buckets["three"], promoted)
-				} else {
-					buckets["week"] = append(buckets["week"], task)
-				}
-			} else if (task.Date <= date && date <= sunday) || (task.Date >= bounds["week"].Start && task.Date <= bounds["week"].End) {
-				buckets["week"] = append(buckets["week"], task)
-			} else if date > sunday && !task.Done && task.RecurringID == "" {
-				carryovers = append(carryovers, task)
-			}
-		case "month":
-			createdDate := task.CreatedAt
-			if len(createdDate) >= 10 {
-				createdDate = createdDate[:10]
-			}
-			updatedDate := task.UpdatedAt
-			if len(updatedDate) >= 10 {
-				updatedDate = updatedDate[:10]
-			}
-			activeToday := createdDate == date || updatedDate == date
-			monthEnd := lastDayOfMonth(task.Date)
-			sprintStart := addDays(monthEnd, -6)
-			if !activeToday && date >= sprintStart && date <= monthEnd {
-				if !task.Done {
-					promoted := task
-					promoted.Bucket = "week"
-					promoted.Date = bounds["week"].Start
-					buckets["week"] = append(buckets["week"], promoted)
-				} else {
-					buckets["month"] = append(buckets["month"], task)
-				}
-			} else if (date >= task.Date && date <= monthEnd) || (task.Date >= bounds["month"].Start && task.Date <= bounds["month"].End) {
-				buckets["month"] = append(buckets["month"], task)
-			} else if date > monthEnd && !task.Done && task.RecurringID == "" {
-				carryovers = append(carryovers, task)
-			}
+		projected, placement := projectTask(task, date, bounds, s.location)
+		if placement == "carryover" {
+			carryovers = append(carryovers, projected)
+		} else if placement != "" {
+			buckets[placement] = append(buckets[placement], projected)
 		}
 	}
 	plans, err := s.readRecurring(c.Request.Context())
@@ -449,13 +370,14 @@ func (s *Server) createTask(c *gin.Context) {
 		Bucket          string `json:"bucket"`
 		Date            string `json:"date"`
 		Priority        bool   `json:"priority"`
+		ReminderDate    string `json:"reminderDate"`
 		ReminderTime    string `json:"reminderTime"`
 		ReminderAdvance int    `json:"reminderAdvance"`
 	}
 	if !bind(c, &input) {
 		return
 	}
-	task := Task{Title: input.Title, Notes: input.Notes, Bucket: input.Bucket, Date: input.Date, Priority: input.Priority, ReminderTime: input.ReminderTime, ReminderAdvance: input.ReminderAdvance, Version: 1, CreatedAt: stamp(s.now()), UpdatedAt: stamp(s.now())}
+	task := Task{Title: input.Title, Notes: input.Notes, Bucket: input.Bucket, Date: input.Date, Priority: input.Priority, ReminderDate: input.ReminderDate, ReminderTime: input.ReminderTime, ReminderAdvance: input.ReminderAdvance, Version: 1, CreatedAt: stamp(s.now()), UpdatedAt: stamp(s.now())}
 	if err := validateTask(&task, s.location); err != nil {
 		fail(c, 400, err.Error(), "invalid")
 		return
@@ -478,7 +400,7 @@ func (s *Server) createTask(c *gin.Context) {
 			return
 		}
 	}
-	_, err = tx.ExecContext(c.Request.Context(), `INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,version,created_at,updated_at,reminder_time,reminder_advance,cancelled_at) VALUES(?,1,?,?,?,?,?,?,?,?,?,?,?)`, task.ID, task.Title, task.Notes, task.Bucket, task.Date, task.Priority, task.Version, task.CreatedAt, task.UpdatedAt, task.ReminderTime, task.ReminderAdvance, "")
+	_, err = tx.ExecContext(c.Request.Context(), `INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,version,created_at,updated_at,reminder_time,reminder_advance,cancelled_at,reminder_date) VALUES(?,1,?,?,?,?,?,?,?,?,?,?,?,?)`, task.ID, task.Title, task.Notes, task.Bucket, task.Date, task.Priority, task.Version, task.CreatedAt, task.UpdatedAt, task.ReminderTime, task.ReminderAdvance, "", task.ReminderDate)
 	if err != nil {
 		s.internal(c, err)
 		return
@@ -499,6 +421,7 @@ func (s *Server) updateTask(c *gin.Context) {
 		Date            *string `json:"date"`
 		Done            *bool   `json:"done"`
 		Priority        *bool   `json:"priority"`
+		ReminderDate    *string `json:"reminderDate"`
 		ReminderTime    *string `json:"reminderTime"`
 		ReminderAdvance *int    `json:"reminderAdvance"`
 		Cancelled       *bool   `json:"cancelled"`
@@ -532,6 +455,7 @@ func (s *Server) updateTask(c *gin.Context) {
 	}
 	wasDone := task.Done
 	previousDate := task.Date
+	previousReminderDate := task.ReminderDate
 	if input.Title != nil {
 		task.Title = *input.Title
 	}
@@ -543,6 +467,12 @@ func (s *Server) updateTask(c *gin.Context) {
 	}
 	if input.Date != nil {
 		task.Date = *input.Date
+		if task.Date != previousDate && input.ReminderDate == nil {
+			task.ReminderDate = task.Date
+		}
+	}
+	if input.ReminderDate != nil {
+		task.ReminderDate = *input.ReminderDate
 	}
 	if input.Done != nil {
 		task.Done = *input.Done
@@ -579,7 +509,7 @@ func (s *Server) updateTask(c *gin.Context) {
 		fail(c, 400, err.Error(), "invalid")
 		return
 	}
-	if task.Date != previousDate {
+	if task.ReminderDate != previousReminderDate {
 		task.RemindedAt = ""
 	}
 	task.UpdatedAt = stamp(s.now())
@@ -597,7 +527,7 @@ func (s *Server) updateTask(c *gin.Context) {
 			return
 		}
 	}
-	_, err = tx.ExecContext(c.Request.Context(), `UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=?,updated_at=?,completed_at=NULLIF(?,''),completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=?,cancelled_at=? WHERE id=? AND user_id=1`, task.Title, task.Notes, task.Bucket, task.Date, task.Done, task.Priority, task.Version, task.UpdatedAt, task.CompletedAt, task.CompletionDateEstimated, task.ReminderTime, task.ReminderAdvance, task.RemindedAt, task.CancelledAt, task.ID)
+	_, err = tx.ExecContext(c.Request.Context(), `UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=?,updated_at=?,completed_at=NULLIF(?,''),completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=?,cancelled_at=?,reminder_date=? WHERE id=? AND user_id=1`, task.Title, task.Notes, task.Bucket, task.Date, task.Done, task.Priority, task.Version, task.UpdatedAt, task.CompletedAt, task.CompletionDateEstimated, task.ReminderTime, task.ReminderAdvance, task.RemindedAt, task.CancelledAt, task.ReminderDate, task.ID)
 	if err != nil {
 		s.internal(c, err)
 		return

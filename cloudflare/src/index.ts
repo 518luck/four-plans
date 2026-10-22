@@ -16,7 +16,6 @@ import {
   parseDate,
   beijingDate,
   addDays,
-  lastDayOfMonth,
   periods,
   taskFromRow,
   goalFromRow,
@@ -24,6 +23,7 @@ import {
   validateGoal,
   statistics,
   dayDetail,
+  projectTask,
   type Row,
 } from "./domain";
 import {
@@ -198,15 +198,17 @@ async function checkAndSendReminders(db: DB, now: Date): Promise<void> {
   const rows = (
     await db
       .prepare(
-        "SELECT * FROM tasks WHERE user_id=1 AND scheduled_date=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL AND COALESCE(cancelled_at,'')=''",
+        "SELECT * FROM tasks WHERE user_id=1 AND reminder_date>=? AND reminder_date<=? AND reminder_time!='' AND (reminded_at='' OR reminded_at IS NULL) AND done=0 AND deleted_at IS NULL AND COALESCE(cancelled_at,'')=''",
       )
-      .bind(currentDate)
+      .bind(currentDate, addDays(currentDate, 1))
       .all<Row>()
   ).results;
   const tasks = rows.map(taskFromRow);
   for (const task of tasks) {
     if (!task.reminderTime) continue;
-    const taskDate = new Date(`${task.date}T${task.reminderTime}:00+08:00`);
+    const taskDate = new Date(
+      `${task.reminderDate}T${task.reminderTime}:00+08:00`,
+    );
     if (isNaN(taskDate.getTime())) continue;
     const triggerTime = new Date(
       taskDate.getTime() - (task.reminderAdvance || 0) * 60000,
@@ -228,7 +230,7 @@ async function checkAndSendReminders(db: DB, now: Date): Promise<void> {
 
     const lines = [
       `🎯 计划：${task.title}`,
-      `⏰ 时间：${task.reminderTime} (${advanceText})`,
+      `⏰ 时间：${task.reminderDate} ${task.reminderTime} (${advanceText})`,
       `📌 类别：${bucketName}计划${priorityTag}`,
     ];
     if (task.notes) lines.push(`📝 备注：${task.notes}`);
@@ -242,9 +244,15 @@ async function checkAndSendReminders(db: DB, now: Date): Promise<void> {
       );
       await db
         .prepare(
-          "UPDATE tasks SET reminded_at=? WHERE id=? AND (reminded_at='' OR reminded_at IS NULL)",
+          "UPDATE tasks SET reminded_at=? WHERE id=? AND (reminded_at='' OR reminded_at IS NULL) AND reminder_date=? AND reminder_time=? AND reminder_advance=? AND done=0 AND deleted_at IS NULL AND COALESCE(cancelled_at,'')=''",
         )
-        .bind(now.toISOString(), task.id)
+        .bind(
+          now.toISOString(),
+          task.id,
+          task.reminderDate,
+          task.reminderTime,
+          task.reminderAdvance || 0,
+        )
         .run();
     } catch (e) {
       console.error("send feishu reminder failed", e);
@@ -357,6 +365,7 @@ async function taskRoute(
       "bucket",
       "date",
       "priority",
+      "reminderDate",
       "reminderTime",
       "reminderAdvance",
     ]);
@@ -368,6 +377,8 @@ async function taskRoute(
       date: text(body.date),
       done: false,
       priority: body.priority === undefined ? false : boolean(body.priority),
+      reminderDate:
+        body.reminderDate === undefined ? undefined : text(body.reminderDate),
       reminderTime: body.reminderTime ? String(body.reminderTime) : undefined,
       reminderAdvance:
         body.reminderAdvance !== undefined && body.reminderAdvance !== null
@@ -380,7 +391,7 @@ async function taskRoute(
     validateTask(task);
     await db
       .prepare(
-        "INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,created_at,updated_at,reminder_time,reminder_advance) VALUES(?,1,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO tasks(id,user_id,title,notes,bucket,scheduled_date,priority,created_at,updated_at,reminder_time,reminder_advance,reminder_date) VALUES(?,1,?,?,?,?,?,?,?,?,?,?)",
       )
       .bind(
         task.id,
@@ -393,6 +404,7 @@ async function taskRoute(
         stamp,
         task.reminderTime || "",
         task.reminderAdvance || 0,
+        task.reminderDate || "",
       )
       .run();
     return json(task, 201);
@@ -406,6 +418,7 @@ async function taskRoute(
         "date",
         "done",
         "priority",
+        "reminderDate",
         "reminderTime",
         "reminderAdvance",
         "cancelled",
@@ -420,7 +433,14 @@ async function taskRoute(
     if (body.bucket !== undefined)
       task.bucket = text(body.bucket) as Task["bucket"];
     const previousDate = task.date;
-    if (body.date !== undefined) task.date = text(body.date);
+    const previousReminderDate = task.reminderDate;
+    if (body.date !== undefined) {
+      task.date = text(body.date);
+      if (task.date !== previousDate && body.reminderDate === undefined)
+        task.reminderDate = task.date;
+    }
+    if (body.reminderDate !== undefined)
+      task.reminderDate = text(body.reminderDate);
     if (body.done !== undefined) task.done = boolean(body.done);
     if (body.priority !== undefined) task.priority = boolean(body.priority);
     if (body.reminderTime !== undefined) {
@@ -446,7 +466,7 @@ async function taskRoute(
       if (task.cancelledAt) task.priority = false;
     }
     validateTask(task);
-    if (task.date !== previousDate) task.remindedAt = undefined;
+    if (task.reminderDate !== previousReminderDate) task.remindedAt = undefined;
     if (task.done && !wasDone) {
       task.completedAt = stamp;
       task.completionDateEstimated = false;
@@ -458,7 +478,7 @@ async function taskRoute(
     task.updatedAt = stamp;
     const result = await db
       .prepare(
-        "UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=version+1,updated_at=?,completed_at=?,completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=?,cancelled_at=? WHERE id=? AND user_id=1 AND version=? AND deleted_at IS NULL",
+        "UPDATE tasks SET title=?,notes=?,bucket=?,scheduled_date=?,done=?,priority=?,version=version+1,updated_at=?,completed_at=?,completion_date_estimated=?,reminder_time=?,reminder_advance=?,reminded_at=?,cancelled_at=?,reminder_date=? WHERE id=? AND user_id=1 AND version=? AND deleted_at IS NULL",
       )
       .bind(
         task.title,
@@ -474,6 +494,7 @@ async function taskRoute(
         task.reminderAdvance || 0,
         task.remindedAt || "",
         task.cancelledAt || null,
+        task.reminderDate || "",
         id,
         version,
       )
@@ -582,10 +603,11 @@ async function goalRoute(
       bad("新的截止日期不能早于明天");
     goal.version++;
     goal.updatedAt = stamp;
+    const mutationId = randomToken(16);
     const statements = [
       db
         .prepare(
-          "UPDATE recurring_plans SET title=?,notes=?,end_date=?,status=?,effective_date=?,version=version+1,updated_at=?,generated_until=CASE WHEN ?=1 AND generated_until>=? THEN ? ELSE generated_until END WHERE id=? AND user_id=1 AND version=? AND status<>'stopped'",
+          "UPDATE recurring_plans SET title=?,notes=?,end_date=?,status=?,effective_date=?,version=version+1,updated_at=?,mutation_id=?,generated_until=CASE WHEN ?=1 AND generated_until>=? THEN ? ELSE generated_until END WHERE id=? AND user_id=1 AND version=? AND status<>'stopped'",
         )
         .bind(
           goal.title,
@@ -594,6 +616,7 @@ async function goalRoute(
           goal.status,
           goal.effectiveDate,
           stamp,
+          mutationId,
           resuming ? 1 : 0,
           today,
           addDays(today, -1),
@@ -602,10 +625,11 @@ async function goalRoute(
         ),
     ];
     if (resuming && currentRevision) {
-      // Guard all revision changes with the same winning plan version as the CAS.
+      // A concurrent request can win the same version; only this mutation may
+      // update its revisions, and all statements still commit in one batch.
       // Keep today's content and tomorrow's pending edits at their original dates.
       const resumedPlan =
-        "EXISTS(SELECT 1 FROM recurring_plans WHERE id=? AND version=? AND status='active' AND effective_date=?)";
+        "EXISTS(SELECT 1 FROM recurring_plans WHERE id=? AND version=? AND mutation_id=? AND status='active' AND effective_date=?)";
       statements.push(
         db
           .prepare(
@@ -619,13 +643,14 @@ async function goalRoute(
             today,
             id,
             goal.version,
+            mutationId,
             today,
           ),
         db
           .prepare(
             `UPDATE recurring_revisions SET status='active' WHERE plan_id=? AND effective_date>? AND ${resumedPlan}`,
           )
-          .bind(id, today, id, goal.version, today),
+          .bind(id, today, id, goal.version, mutationId, today),
       );
       if (
         body.title !== undefined ||
@@ -647,6 +672,7 @@ async function goalRoute(
               goal.end,
               id,
               goal.version,
+              mutationId,
               today,
             ),
         );
@@ -1138,96 +1164,10 @@ async function api(request: Request, env: Env): Promise<Response> {
         cancelled.push(task);
         continue;
       }
-      switch (task.bucket) {
-        case "today":
-          if (task.date === date) {
-            buckets.today.push(task);
-          } else if (task.date < date && !task.done && !task.recurringId) {
-            carryovers.push(task);
-          }
-          break;
-        case "three": {
-          const cycleEnd = addDays(task.date, 2);
-          if (date === cycleEnd) {
-            if (!task.done) {
-              buckets.today.push({
-                ...task,
-                bucket: "today",
-                date,
-              });
-            } else {
-              buckets.three.push(task);
-            }
-          } else if (task.date <= date && date < cycleEnd) {
-            buckets.three.push(task);
-          } else if (
-            task.date >= bounds.three.start &&
-            task.date <= bounds.three.end
-          ) {
-            buckets.three.push(task);
-          } else if (date > cycleEnd && !task.done && !task.recurringId) {
-            carryovers.push(task);
-          }
-          break;
-        }
-        case "week": {
-          const createdDate = task.createdAt.slice(0, 10);
-          const updatedDate = task.updatedAt.slice(0, 10);
-          const activeToday = createdDate === date || updatedDate === date;
-          const friday = addDays(task.date, 4);
-          const sunday = addDays(task.date, 6);
-          if (
-            !activeToday &&
-            date >= friday &&
-            date <= sunday &&
-            (createdDate < friday || date > createdDate)
-          ) {
-            if (!task.done) {
-              buckets.three.push({
-                ...task,
-                bucket: "three",
-                date: friday,
-              });
-            } else {
-              buckets.week.push(task);
-            }
-          } else if (
-            (task.date <= date && date <= sunday) ||
-            (task.date >= bounds.week.start && task.date <= bounds.week.end)
-          ) {
-            buckets.week.push(task);
-          } else if (date > sunday && !task.done && !task.recurringId) {
-            carryovers.push(task);
-          }
-          break;
-        }
-        case "month": {
-          const createdDate = task.createdAt.slice(0, 10);
-          const updatedDate = task.updatedAt.slice(0, 10);
-          const activeToday = createdDate === date || updatedDate === date;
-          const monthEnd = lastDayOfMonth(task.date);
-          const sprintStart = addDays(monthEnd, -6);
-          if (!activeToday && date >= sprintStart && date <= monthEnd) {
-            if (!task.done) {
-              buckets.week.push({
-                ...task,
-                bucket: "week",
-                date: bounds.week.start,
-              });
-            } else {
-              buckets.month.push(task);
-            }
-          } else if (
-            (date >= task.date && date <= monthEnd) ||
-            (task.date >= bounds.month.start && task.date <= bounds.month.end)
-          ) {
-            buckets.month.push(task);
-          } else if (date > monthEnd && !task.done && !task.recurringId) {
-            carryovers.push(task);
-          }
-          break;
-        }
-      }
+      const projected = projectTask(task, date, bounds);
+      if (projected.placement === "carryover") carryovers.push(projected.task);
+      else if (projected.placement)
+        buckets[projected.placement].push(projected.task);
     }
     return json({
       date,
